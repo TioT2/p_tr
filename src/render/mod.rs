@@ -106,10 +106,7 @@ impl<'t> Render<'t> {
     }
 
     pub fn new(window: impl wgpu::WindowHandle + 't, surface_ext: Ext2u) -> Option<Self> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor  {
-            backends: wgpu::Backends::DX12,
-            ..Default::default()
-        });
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
 
         let surface = instance.create_surface(window).ok()?;
 
