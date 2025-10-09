@@ -354,7 +354,7 @@ impl Render {
             cache: None,
         });
 
-        let collector_extent_scale = 4;
+        let collector_extent_scale = 2;
         let collector_extent = Ext2u::new(
             surface_configuration.width / collector_extent_scale,
             surface_configuration.height / collector_extent_scale
@@ -428,8 +428,8 @@ impl Render {
         };
         let target_image_view = image.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let target_image_size = image.texture.size();
-        let resolution = Vec2f::new(target_image_size.width as f32, target_image_size.height as f32);
+        // let target_image_size = image.texture.size();
+        let resolution = Vec2f::new(self.collector_extent.w as f32, self.collector_extent.h as f32);
         let system_buffer_data = SystemBufferData {
             resolution,
             texel_size: resolution.map(f32::recip),

@@ -447,6 +447,12 @@ fn trace(init_ray: Ray) -> vec3f {
         // ray.direction = normalize(ray.direction - result.normal * dot(ray.direction, result.normal));
         // ray.direction = result.normal * sqrt(1.0 - cos_theta_2) + ray.direction * sqrt(cos_theta_2);
 
+        // ray_color *= brdf_lambert(
+        //     result.color,
+        //     result.normal,
+        //     ray.direction,
+        // );
+
         ray_color *= brdf_cook_torrance(
             result.color,
             result.metallic,
@@ -479,7 +485,7 @@ fn fs_main(@builtin(position) frag_coord_4f: vec4f, @location(0) tex_coord: vec2
         * u32(tex_coord.y * 8765345.0)
         * u32(fract(system.time) * 324234234.5);
 
-    let sample_count = 24;
+    let sample_count = 8;
     var out_color = vec3f(0.0, 0.0, 0.0);
     for (var i = 0; i < sample_count; i++) {
         out_color += trace(tex_coord_to_ray(tex_coord + system.texel_size * vec2f(rand_f32(), rand_f32())));
