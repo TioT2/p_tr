@@ -248,7 +248,8 @@ fn fs_main(@builtin(position) frag_coord_4f: vec4f, @location(0) tex_coord: vec2
         trace(tex_coord_to_ray(tex_coord + system.texel_size * vec2f(rand_f32(), rand_f32()))) +
         trace(tex_coord_to_ray(tex_coord + system.texel_size * vec2f(rand_f32(), rand_f32()))) +
         trace(tex_coord_to_ray(tex_coord + system.texel_size * vec2f(rand_f32(), rand_f32()))) +
-        trace(tex_coord_to_ray(tex_coord + system.texel_size * vec2f(rand_f32(), rand_f32())))
+        trace(tex_coord_to_ray(tex_coord + system.texel_size * vec2f(rand_f32(), rand_f32()))) +
+        0.0
     ) / 4.0;
 
     return vec4f(textureLoad(read_collector, vec2i(frag_coord_4f.xy), 0).xyz * f32(system.static_frame_index != 0) + out_color, 0.0);

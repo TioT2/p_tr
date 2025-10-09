@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use crate::math::{Ext2f, Ext2u, Vec3f};
 
 pub struct CameraDescriptor {
@@ -17,10 +15,13 @@ pub struct CameraDescriptor {
 struct CameraData {
     location: Vec3f,
     _pad0: f32,
+
     dir: Vec3f,
     near: f32,
+
     right: Vec3f,
     projection_width: f32,
+
     up: Vec3f,
     projection_height: f32,
 }
@@ -35,19 +36,16 @@ struct SystemData {
     texel_size: Ext2f,
 }
 
-pub struct Kernel<'t> {
-    surface: wgpu::Surface<'t>,
-    queue: wgpu::Queue,
-    device: wgpu::Device,
-}
-
 struct Collector {
     view: wgpu::TextureView,
     bind_group: wgpu::BindGroup,
 }
 
-pub struct Render<'t> {
-    kernel: Rc<Kernel<'t>>,
+pub struct Render {
+    surface: wgpu::Surface<'static>,
+    queue: wgpu::Queue,
+    device: wgpu::Device,
+
     surface_configuration: wgpu::SurfaceConfiguration,
 
     camera_buffer: wgpu::Buffer,
@@ -62,8 +60,12 @@ pub struct Render<'t> {
     collectors: [Collector; 2],
 }
 
-impl<'t> Render<'t> {
-    fn create_collectors<const N: usize>(device: &wgpu::Device, bind_group_layout: &wgpu::BindGroupLayout, extent: Ext2u) -> [Collector; N] {
+impl Render {
+    fn create_collectors<const N: usize>(
+        device: &wgpu::Device,
+        bind_group_layout: &wgpu::BindGroupLayout,
+        extent: Ext2u
+    ) -> [Collector; N] {
         let collector_target_texture = device.create_texture(&wgpu::TextureDescriptor {
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba32Float,
@@ -81,14 +83,15 @@ impl<'t> Render<'t> {
 
         let build_collector = |index: usize| {
             let view = collector_target_texture.create_view(&wgpu::TextureViewDescriptor {
-                array_layer_count: Some(1),
-                aspect: wgpu::TextureAspect::All,
-                base_array_layer: index as u32,
-                base_mip_level: 0,
-                dimension: Some(wgpu::TextureViewDimension::D2),
-                format: Some(wgpu::TextureFormat::Rgba32Float),
                 label: None,
+                format: Some(wgpu::TextureFormat::Rgba32Float),
+                dimension: Some(wgpu::TextureViewDimension::D2),
+                usage: Some(wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING),
+                aspect: wgpu::TextureAspect::All,
+                base_mip_level: 0,
                 mip_level_count: None,
+                base_array_layer: index as u32,
+                array_layer_count: Some(1),
             });
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 entries: &[wgpu::BindGroupEntry {
@@ -105,8 +108,8 @@ impl<'t> Render<'t> {
         std::array::from_fn(build_collector)
     }
 
-    pub fn new(window: impl wgpu::WindowHandle + 't, surface_ext: Ext2u) -> Option<Self> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
+    pub fn new(window: impl wgpu::WindowHandle + 'static, surface_ext: Ext2u) -> Option<Self> {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
 
         let surface = instance.create_surface(window).ok()?;
 
@@ -114,13 +117,16 @@ impl<'t> Render<'t> {
             compatible_surface: Some(&surface),
             power_preference: wgpu::PowerPreference::HighPerformance,
             ..Default::default()
-        }))?;
+        })).ok()?;
 
         let (device, queue) = futures::executor::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("Device"),
+            label: None,
             required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::downlevel_defaults(),
-        }, None)).ok()?;
+            required_limits: wgpu::Limits::defaults(),
+            experimental_features: wgpu::ExperimentalFeatures::disabled(),
+            memory_hints: wgpu::MemoryHints::Performance,
+            trace: wgpu::Trace::Off,
+        })).ok()?;
 
         let surface_format = {
             let caps = surface.get_capabilities(&adapter);
@@ -227,7 +233,7 @@ impl<'t> Render<'t> {
             depth_stencil: None,
             fragment: Some(wgpu::FragmentState {
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 module: &render_shader_module,
                 targets: &[Some(wgpu::ColorTargetState {
                     blend: None,
@@ -245,9 +251,10 @@ impl<'t> Render<'t> {
             vertex: wgpu::VertexState {
                 buffers: &[],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 module: &render_shader_module,
-            }
+            },
+            cache: None,
         });
 
         let place_shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -264,7 +271,7 @@ impl<'t> Render<'t> {
             depth_stencil: None,
             fragment: Some(wgpu::FragmentState {
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 module: &place_shader_module,
                 targets: &[Some(wgpu::ColorTargetState {
                     blend: None,
@@ -283,18 +290,17 @@ impl<'t> Render<'t> {
             vertex: wgpu::VertexState {
                 buffers: &[],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 module: &place_shader_module,
-            }
+            },
+            cache: None,
         });
 
         Some(Self {
             collectors: Self::create_collectors(&device, &collector_bind_group_layout, surface_ext),
-            kernel: Rc::new(Kernel {
-                device,
-                queue,
-                surface,
-            }),
+            device,
+            queue,
+            surface,
             render_bind_group,
             camera_buffer,
             system_buffer,
@@ -309,14 +315,14 @@ impl<'t> Render<'t> {
     /// Render resize function
     pub fn resize(&mut self, new_extent: Ext2u) {
         self.static_frame_index = 0;
-        self.collectors = Self::create_collectors(&self.kernel.device, &self.collector_bind_group_layout, new_extent.clone());
+        self.collectors = Self::create_collectors(&self.device, &self.collector_bind_group_layout, new_extent.clone());
         self.surface_configuration.width = new_extent.w;
         self.surface_configuration.height = new_extent.h;
-        self.kernel.surface.configure(&self.kernel.device, &self.surface_configuration);
+        self.surface.configure(&self.device, &self.surface_configuration);
     } // fn resize
 
     pub fn set_camera(&mut self, camera_data: &CameraDescriptor) {
-        self.kernel.queue.write_buffer(&self.camera_buffer, 0, unsafe {
+        self.queue.write_buffer(&self.camera_buffer, 0, unsafe {
             std::slice::from_raw_parts(std::mem::transmute(&CameraData {
                 _pad0: 0.0,
                 dir: camera_data.dir,
@@ -332,13 +338,13 @@ impl<'t> Render<'t> {
     } // fn set_camera
 
     pub fn render(&mut self) {
-        let image = match self.kernel.surface.get_current_texture() {
+        let image = match self.surface.get_current_texture() {
             Ok(v) => v,
             Err(_) => return,
         };
         let image_view = image.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        self.kernel.queue.write_buffer(&self.system_buffer, 0, unsafe {
+        self.queue.write_buffer(&self.system_buffer, 0, unsafe {
             let s = image.texture.size();
             let resolution = Ext2f::new(s.width as f32, s.height as f32);
             let texel_size = Ext2f::new(1.0 / resolution.w, 1.0 / resolution.h);
@@ -353,7 +359,7 @@ impl<'t> Render<'t> {
             }), std::mem::size_of::<SystemData>())
         });
 
-        let mut encoder = self.kernel.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
 
         let read_collector = &self.collectors[self.static_frame_index as usize & 1];
@@ -367,6 +373,7 @@ impl<'t> Render<'t> {
                 },
                 resolve_target: None,
                 view: &target_collector.view,
+                depth_slice: None,
             })],
             ..Default::default()
         });
@@ -386,6 +393,7 @@ impl<'t> Render<'t> {
                 },
                 resolve_target: None,
                 view: &image_view,
+                depth_slice: None,
             })],
             ..Default::default()
         });
@@ -397,7 +405,7 @@ impl<'t> Render<'t> {
 
         drop(render_pass);
 
-        self.kernel.queue.submit([encoder.finish()]);
+        self.queue.submit([encoder.finish()]);
         image.present();
 
         self.static_frame_index += 1;

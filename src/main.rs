@@ -36,34 +36,34 @@ impl Camera {
     }
 }
 
-struct System<'t> {
+struct System {
     window: Arc<winit::window::Window>,
-    render: render::Render<'t>,
+    render: render::Render,
     timer: timer::Timer,
     input: input::Input,
     camera: Camera,
 }
 
-impl<'t> System<'t> {
+impl System {
     pub fn new(window: winit::window::Window) -> Self {
         let window_size = window.inner_size();
         let window = Arc::new(window);
 
-        let mut s = Self {
+        let mut result = Self {
             render: render::Render::new(window.clone(), Ext2u::new(window_size.width, window_size.height)).unwrap(),
             window,
             timer: timer::Timer::new(),
             input: input::Input::new(),
             camera: Camera::new(),
         };
-        s.camera.set(
+        result.camera.set(
             Vec3f::new(-3.2, 2.8, 0.3),
             Vec3f::new(-2.4, 2.4, -0.1),
             Vec3f::new(0.0, 1.0, 0.0)
         );
 
-        s.update_render_camera();
-        s
+        result.update_render_camera();
+        result
     }
 
     fn update_render_camera(&mut self) {
@@ -189,24 +189,23 @@ impl<'t> System<'t> {
                     self.update_render_camera();
                 }
                 self.render.render();
-                self.window.request_redraw();
             }
             _ => {}
         }
     }
 }
 
-struct Application<'t> {
-    system: Option<System<'t>>,
+struct Application {
+    system: Option<System>,
 }
 
-impl<'t> Application<'t> {
+impl Application {
     pub fn new() -> Self {
         Self { system: None }
     }
 }
 
-impl<'t> winit::application::ApplicationHandler for Application<'t> {
+impl winit::application::ApplicationHandler for Application {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         if let Ok(window) = event_loop.create_window(winit::window::WindowAttributes::default()
             .with_title("PathTRacing")
@@ -216,15 +215,22 @@ impl<'t> winit::application::ApplicationHandler for Application<'t> {
         }
     }
 
+    fn about_to_wait(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
+        let Some(system) = self.system.as_ref() else {
+            return;
+        };
+
+        system.window.request_redraw();
+    }
+
     fn window_event(
-            &mut self,
-            event_loop: &winit::event_loop::ActiveEventLoop,
-            window_id: winit::window::WindowId,
-            event: winit::event::WindowEvent,
-        ) {
-        let system = match self.system.as_mut() {
-            Some(v) => v,
-            None => return,
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        window_id: winit::window::WindowId,
+        event: winit::event::WindowEvent,
+    ) {
+        let Some(system) = self.system.as_mut() else {
+            return
         };
 
         system.on_window_event(event_loop, window_id, event);
@@ -232,7 +238,10 @@ impl<'t> winit::application::ApplicationHandler for Application<'t> {
 }
 
 fn main() {
-    let event_loop = winit::event_loop::EventLoop::new().expect("Error creating WINIT event loop");
+    let event_loop = winit::event_loop::EventLoop::new().unwrap();
+    event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
+
     let mut application = Application::new();
-    event_loop.run_app(&mut application).expect("Error starting WINIT Application");
+
+    event_loop.run_app(&mut application).unwrap();
 }
