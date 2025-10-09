@@ -1,18 +1,30 @@
-use crate::math::{Ext2f, Ext2u, Vec3f};
+use std::sync::Arc;
 
+use crate::{math::{Ext2u, Vec2f, Vec3f}};
+
+/// Render camera descriptor
 pub struct CameraDescriptor {
+    /// Camrea origin
     pub location: Vec3f,
-    pub at: Vec3f,
-    pub dir: Vec3f,
+
+    /// Forward direction
+    pub forward: Vec3f,
+
+    /// Right direction
     pub right: Vec3f,
+
+    /// Up direction
     pub up: Vec3f,
-    pub projection_extent: Ext2f,
-    pub near: f32,
+
+    /// Projection width/height
+    pub projection_size: Vec2f,
+
+    /// Near projection plane
+    pub near_plane: f32,
 }
 
-#[repr(packed)]
-#[allow(unused)]
-struct CameraData {
+#[repr(C)]
+struct CameraBufferData {
     location: Vec3f,
     _pad0: f32,
 
@@ -27,37 +39,76 @@ struct CameraData {
 }
 
 #[derive(Default)]
-#[repr(packed)]
-#[allow(unused)]
-struct SystemData {
-    resolution: Ext2f,
+#[repr(C)]
+struct SystemBufferData {
+    resolution: Vec2f,
     time: f32,
     static_frame_index: u32,
-    texel_size: Ext2f,
+
+    texel_size: Vec2f,
 }
 
-struct Collector {
+/// Convert structure into byte slice
+unsafe fn into_byte_slice<'t, T>(item: &'t T) -> &'t [u8] {
+    unsafe {
+        std::slice::from_raw_parts(
+            (item as *const T) as *const u8,
+            std::mem::size_of::<T>()
+        )
+    }
+}
+
+/// Collector texture
+struct CollectorTexture {
+    /// Frame view
     view: wgpu::TextureView,
+
+    /// Bind group corresponding to the texture
     bind_group: wgpu::BindGroup,
 }
 
+/// Renderer structure
 pub struct Render {
+    /// Destination surface
     surface: wgpu::Surface<'static>,
+
+    /// Queue
     queue: wgpu::Queue,
+
+    /// Device
     device: wgpu::Device,
 
+    /// Configuration of the surface
     surface_configuration: wgpu::SurfaceConfiguration,
 
+    /// Buffer that holds camera data
     camera_buffer: wgpu::Buffer,
+
+    /// Buffer that holds system data
     system_buffer: wgpu::Buffer,
+
+    /// Index of the current static frame (e.g. amount of collected frames in target texture)
     static_frame_index: u32,
 
     collector_bind_group_layout: wgpu::BindGroupLayout,
+
+    /// Bind group used in rendering process
     render_bind_group: wgpu::BindGroup,
+
+    /// Pipeline used in rendering process
     render_pipeline: wgpu::RenderPipeline,
 
+    /// Pipeline that maps collector contents on the screen
     place_pipeline: wgpu::RenderPipeline,
-    collectors: [Collector; 2],
+
+    /// Target textures
+    collectors: [CollectorTexture; 2],
+
+    /// Time of the rendering start
+    render_start_time: std::time::Instant,
+
+    /// Window holder
+    _window_handle: Arc<dyn wgpu::WindowHandle>,
 }
 
 impl Render {
@@ -65,7 +116,7 @@ impl Render {
         device: &wgpu::Device,
         bind_group_layout: &wgpu::BindGroupLayout,
         extent: Ext2u
-    ) -> [Collector; N] {
+    ) -> [CollectorTexture; N] {
         let collector_target_texture = device.create_texture(&wgpu::TextureDescriptor {
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba32Float,
@@ -102,16 +153,16 @@ impl Render {
                 layout: &bind_group_layout,
             });
 
-            Collector { view, bind_group }
+            CollectorTexture { view, bind_group }
         };
 
         std::array::from_fn(build_collector)
     }
 
-    pub fn new(window: impl wgpu::WindowHandle + 'static, surface_ext: Ext2u) -> Option<Self> {
+    pub fn new(window: Arc<dyn wgpu::WindowHandle>, surface_ext: Ext2u) -> Option<Self> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
 
-        let surface = instance.create_surface(window).ok()?;
+        let surface = instance.create_surface(window.clone()).ok()?;
 
         let adapter = futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             compatible_surface: Some(&surface),
@@ -158,14 +209,14 @@ impl Render {
         let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Camera UBO"),
             mapped_at_creation: false,
-            size: std::mem::size_of::<CameraData>() as u64,
+            size: std::mem::size_of::<CameraBufferData>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
         });
 
         let system_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("System UBO"),
             mapped_at_creation: false,
-            size: std::mem::size_of::<SystemData>() as u64,
+            size: std::mem::size_of::<SystemBufferData>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
         });
 
@@ -177,7 +228,7 @@ impl Render {
                     count: None,
                     ty: wgpu::BindingType::Buffer {
                         has_dynamic_offset: false,
-                        min_binding_size: Some(std::num::NonZeroU64::try_from(std::mem::size_of::<CameraData>() as u64).unwrap()),
+                        min_binding_size: Some(std::num::NonZeroU64::try_from(std::mem::size_of::<CameraBufferData>() as u64).unwrap()),
                         ty: wgpu::BufferBindingType::Uniform
                     },
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -187,7 +238,7 @@ impl Render {
                     count: None,
                     ty: wgpu::BindingType::Buffer {
                         has_dynamic_offset: false,
-                        min_binding_size: Some(std::num::NonZeroU64::try_from(std::mem::size_of::<SystemData>() as u64).unwrap()),
+                        min_binding_size: Some(std::num::NonZeroU64::try_from(std::mem::size_of::<SystemBufferData>() as u64).unwrap()),
                         ty: wgpu::BufferBindingType::Uniform
                     },
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -309,6 +360,8 @@ impl Render {
             static_frame_index: 0,
             collector_bind_group_layout,
             surface_configuration,
+            render_start_time: std::time::Instant::now(),
+            _window_handle: window,
         })
     }
 
@@ -319,23 +372,27 @@ impl Render {
         self.surface_configuration.width = new_extent.w;
         self.surface_configuration.height = new_extent.h;
         self.surface.configure(&self.device, &self.surface_configuration);
-    } // fn resize
+    }
 
     pub fn set_camera(&mut self, camera_data: &CameraDescriptor) {
-        self.queue.write_buffer(&self.camera_buffer, 0, unsafe {
-            std::slice::from_raw_parts(std::mem::transmute(&CameraData {
-                _pad0: 0.0,
-                dir: camera_data.dir,
-                location: camera_data.location,
-                near: camera_data.near,
-                projection_height: camera_data.projection_extent.h,
-                projection_width: camera_data.projection_extent.w,
-                right: camera_data.right,
-                up: camera_data.up,
-            }), std::mem::size_of::<CameraData>())
-        });
+        let buffer_camera_data = CameraBufferData {
+            _pad0: 0.0,
+            dir: camera_data.forward,
+            location: camera_data.location,
+            near: camera_data.near_plane,
+            projection_width: camera_data.projection_size.x,
+            projection_height: camera_data.projection_size.y,
+            right: camera_data.right,
+            up: camera_data.up,
+        };
+
+        self.queue.write_buffer(
+            &self.camera_buffer,
+            0,
+            unsafe { into_byte_slice(&buffer_camera_data) }
+        );
         self.static_frame_index = 0;
-    } // fn set_camera
+    }
 
     pub fn render(&mut self) {
         let image = match self.surface.get_current_texture() {
@@ -344,23 +401,22 @@ impl Render {
         };
         let image_view = image.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+        let image_texture_size = image.texture.size();
+        let resolution = Vec2f::new(image_texture_size.width as f32, image_texture_size.height as f32);
+        let system_buffer_data = SystemBufferData {
+            resolution,
+            texel_size: resolution.map(f32::recip),
+            time: std::time::Instant::now().duration_since(self.render_start_time).as_secs_f32(),
+            static_frame_index: self.static_frame_index,
+            ..Default::default()
+        };
+
+        // Update system buffer
         self.queue.write_buffer(&self.system_buffer, 0, unsafe {
-            let s = image.texture.size();
-            let resolution = Ext2f::new(s.width as f32, s.height as f32);
-            let texel_size = Ext2f::new(1.0 / resolution.w, 1.0 / resolution.h);
-            std::slice::from_raw_parts(std::mem::transmute(&SystemData {
-                resolution,
-                texel_size,
-                time: std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH).map(|v| {
-                    (v.as_millis() & 0xFFFFFF) as f32 / 1000.0
-                }).unwrap_or(0.0),
-                static_frame_index: self.static_frame_index,
-                ..Default::default()
-            }), std::mem::size_of::<SystemData>())
+            into_byte_slice(&system_buffer_data)
         });
 
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-
 
         let read_collector = &self.collectors[self.static_frame_index as usize & 1];
         let target_collector = &self.collectors[(self.static_frame_index + 1) as usize & 1];

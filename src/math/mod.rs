@@ -1,22 +1,4 @@
-use std::ops::{Add, AddAssign, BitXor, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign};
-
-pub mod numeric_traits {
-    pub trait Sqrt {
-        fn sqrt(self) -> Self;
-    }
-
-    impl Sqrt for f32 {
-        fn sqrt(self) -> Self {
-            self.sqrt()
-        }
-    }
-
-    impl Sqrt for f64 {
-        fn sqrt(self) -> Self {
-            self.sqrt()
-        }
-    }
-}
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 macro_rules! impl_vecn_binary_operator {
     ($op_name: ident, $op_fn_name: ident, $struct_name: ident, $($x: ident),*) => {
@@ -75,6 +57,7 @@ macro_rules! impl_vecn_unary_operator {
 macro_rules! impl_vecn {
     ($struct_name: ident, $($x: ident),*) => {
         #[derive(Copy, Clone, Debug, Default)]
+        #[repr(C)]
         pub struct $struct_name<T> {
             $( pub $x : T, )*
         }
@@ -82,6 +65,14 @@ macro_rules! impl_vecn {
         impl<T> $struct_name<T> {
             pub fn new($($x: T,)*) -> Self {
                 Self { $($x,)* }
+            }
+
+            pub fn map<Q>(self, mut f: impl FnMut(T) -> Q) -> $struct_name<Q> {
+                let $struct_name { $($x),* } = self;
+
+                $struct_name::<Q> {
+                    $( $x: f($x) ),*
+                }
             }
         }
 
@@ -116,81 +107,57 @@ impl<T> Ext2<T> {
 }
 
 pub type Ext2u = Ext2<u32>;
-pub type Ext2f = Ext2<f32>;
 pub type Vec2f = Vec2<f32>;
 pub type Vec3f = Vec3<f32>;
 
-impl Rem for Vec3f {
-    type Output = Self;
-    fn rem(self, rhs: Self) -> Self::Output {
-        Self::Output {
+impl Vec3f {
+    pub fn cross(self, rhs: Self) -> Self {
+        Self {
             x: self.y * rhs.z - self.z * rhs.y,
             y: self.z * rhs.x - self.x * rhs.z,
             z: self.x * rhs.y - self.y * rhs.x,
         }
     }
-}
 
-impl RemAssign for Vec3f {
-    fn rem_assign(&mut self, rhs: Self) {
-        *self = *self % rhs;
-    }
-}
-
-impl BitXor for Vec3f {
-    type Output = f32;
-    fn bitxor(self, rhs: Self) -> Self::Output {
+    pub fn dot(self, rhs: Self) -> f32 {
         self.x * rhs.x + self.y * rhs.y + self.z * rhs.z
     }
-}
 
-impl BitXor for Vec2f {
-    type Output = f32;
-    fn bitxor(self, rhs: Self) -> Self::Output {
-        self.x * rhs.x + self.y * rhs.y
-    }
-}
-
-impl Vec3f {
-    #[inline]
-    pub fn length2(&self) -> f32 {
-        *self ^ *self
+    pub fn length2(self) -> f32 {
+        Self::dot(self, self)
     }
 
-    #[inline]
-    pub fn length(&self) -> f32 {
+    pub fn length(self) -> f32 {
         self.length2().sqrt()
     }
 
-    #[inline]
-    pub fn normalized(&self) -> Self {
-        *self / self.length()
+    pub fn normalized(self) -> Self {
+        self * self.length().recip()
     }
 
-    #[inline]
     pub fn normalize(&mut self) {
-        *self /= self.length();
+        *self *= self.length().recip();
     }
 }
 
 impl Vec2f {
-    #[inline]
-    pub fn length2(&self) -> f32 {
-        *self ^ *self
+    pub fn dot(self, rhs: Self) -> f32 {
+        self.x * rhs.x + self.y * rhs.y
     }
 
-    #[inline]
-    pub fn length(&self) -> f32 {
+    pub fn length2(self) -> f32 {
+        Self::dot(self, self)
+    }
+
+    pub fn length(self) -> f32 {
         self.length2().sqrt()
     }
 
-    #[inline]
-    pub fn normalized(&self) -> Self {
-        *self / self.length()
+    pub fn normalized(self) -> Self {
+        self * self.length().recip()
     }
 
-    #[inline]
     pub fn normalize(&mut self) {
-        *self /= self.length();
+        *self *= self.length().recip();
     }
 }

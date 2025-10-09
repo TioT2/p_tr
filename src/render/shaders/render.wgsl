@@ -143,10 +143,11 @@ struct SceneIntersectionResult {
 }
 
 fn intersect_scene(ray: Ray) -> SceneIntersectionResult {
+    const INFINITY = 8000000000.0;
     var result: SceneIntersectionResult;
 
     result.is_hit = false;
-    result.distance = 100000000.0;
+    result.distance = INFINITY;
 
     {
         let i = sphere_intersect_check(vec3f(0.0, 2.0, -3.0), 1.0, ray);
@@ -155,7 +156,7 @@ fn intersect_scene(ray: Ray) -> SceneIntersectionResult {
             result.is_hit = true;
             result.distance = i.distance;
             result.color = vec3f(1.0, 1.0, 1.0);
-            result.emission = vec3f(1.0, 1.0, 1.0);
+            result.emission = vec3f(10.0, 10.0, 10.0);
             result.normal = i.normal;
             // result.roughness = 1.0;
         }
@@ -204,7 +205,7 @@ fn intersect_scene(ray: Ray) -> SceneIntersectionResult {
     return result;
 }
 
-const MAX_BOUNCE: u32 = 8;
+const MAX_BOUNCE: u32 = 12;
 
 fn trace(init_ray: Ray) -> vec3f {
     var ray_color = vec3f(1.0, 1.0, 1.0);
@@ -216,15 +217,19 @@ fn trace(init_ray: Ray) -> vec3f {
     while index > 0 {
         let result = intersect_scene(ray);
 
+        // Consider sky being completely black
         if !result.is_hit {
             break;
         }
 
         incoming_light += result.emission * ray_color;
+
         ray.origin += ray.direction * result.distance + result.normal * 0.001;
         ray.direction = rand_vec3();
         ray.direction *= sign(dot(ray.direction, result.normal));
-        ray_color *= result.color * clamp(dot(result.normal, ray.direction), 0.0, 1.0) * 3.14159265358979;
+
+        // Use Lambertian BRDF!
+        ray_color *= result.color * clamp(dot(result.normal, ray.direction), 0.0, 1.0) * (1.0 / radians(180.0));
 
         index = index - 1;
     }
@@ -236,7 +241,10 @@ fn tex_coord_to_ray(tex_coord: vec2f) -> Ray {
     let coord = tex_coord * 2.0 - 1.0;
     var ray: Ray;
     ray.origin = camera.location;
-    ray.direction = normalize(camera.direction * camera.near + camera.right * camera.projection_width * coord.x + camera.up * camera.projection_height * coord.y);
+    ray.direction = normalize(camera.direction * camera.near
+        + camera.right * camera.projection_width * coord.x
+        + camera.up * camera.projection_height * coord.y
+    );
     return ray;
 }
 
@@ -244,15 +252,10 @@ fn tex_coord_to_ray(tex_coord: vec2f) -> Ray {
 fn fs_main(@builtin(position) frag_coord_4f: vec4f, @location(0) tex_coord: vec2f) -> @location(0) vec4f {
     _rand_seed = u32(tex_coord.x * 3123456.0) * u32(tex_coord.y * 8765345.0) * u32((cos(system.time) + 1.123123) * 324234234.5);
 
-    let out_color = (
-        trace(tex_coord_to_ray(tex_coord + system.texel_size * vec2f(rand_f32(), rand_f32()))) +
-        trace(tex_coord_to_ray(tex_coord + system.texel_size * vec2f(rand_f32(), rand_f32()))) +
-        trace(tex_coord_to_ray(tex_coord + system.texel_size * vec2f(rand_f32(), rand_f32()))) +
-        trace(tex_coord_to_ray(tex_coord + system.texel_size * vec2f(rand_f32(), rand_f32()))) +
-        0.0
-    ) / 4.0;
+    let out_color = trace(tex_coord_to_ray(tex_coord + system.texel_size * vec2f(rand_f32(), rand_f32())));
+    let collected_color = textureLoad(read_collector, vec2i(frag_coord_4f.xy), 0).xyz;
 
-    return vec4f(textureLoad(read_collector, vec2i(frag_coord_4f.xy), 0).xyz * f32(system.static_frame_index != 0) + out_color, 0.0);
+    return vec4f(collected_color * f32(system.static_frame_index != 0) + out_color, 0.0);
 } // fn fs_main
 
 // file shader.wgsl

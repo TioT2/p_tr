@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use math::{Ext2f, Ext2u, Vec2f, Vec3f};
+use math::{Ext2u, Vec2f, Vec3f};
 
 pub mod timer;
 pub mod input;
@@ -29,8 +29,8 @@ impl Camera {
 
     pub fn set(&mut self, location: Vec3f, at: Vec3f, approx_up: Vec3f) {
         self.direction = (at - location).normalized();
-        self.right = (self.direction % approx_up).normalized();
-        self.up = (self.right % self.direction).normalized();
+        self.right = Vec3f::cross(self.direction, approx_up).normalized();
+        self.up = Vec3f::cross(self.right, self.direction).normalized();
         self.location = location;
         self.at = at;
     }
@@ -68,18 +68,13 @@ impl System {
 
     fn update_render_camera(&mut self) {
         self.render.set_camera(&render::CameraDescriptor {
-            at: self.camera.at,
-            dir: self.camera.direction,
+            forward: self.camera.direction,
             location: self.camera.location,
-            near: 1.0,
-            projection_extent: {
+            near_plane: 1.0,
+            projection_size: {
                 let size = self.window.inner_size();
-                let min = u32::min(size.width, size.height) as f32;
 
-                Ext2f::new(
-                    size.width as f32 / min,
-                    size.height as f32 / min,
-                )
+                Vec2f::new(size.width as f32, size.height as f32) / u32::min(size.width, size.height) as f32
             },
             right: self.camera.right,
             up: self.camera.up,
