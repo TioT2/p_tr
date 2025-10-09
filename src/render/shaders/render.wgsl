@@ -57,8 +57,8 @@ fn rand_f32() -> f32 {
 }
 
 fn rand_vec3() -> vec3f {
-    let theta = 2 * 3.14159265367989 * rand_f32();
-    let phi = acos(1.0 - 2.0 * rand_f32());
+    let theta = radians(360.0) * rand_f32();
+    let phi = acos(0.999 - 1.998 * rand_f32());
     return vec3f(
         sin(phi) * cos(theta),
         cos(phi),
@@ -136,10 +136,98 @@ fn box_intersect_test(p0: vec3f, p1: vec3f, ray: Ray) -> bool {
 
 struct SceneIntersectionResult {
     color: vec3f,
+    metallic: f32,
+    roughness: f32,
     distance: f32,
     emission: vec3f,
     is_hit: bool,
     normal: vec3f,
+}
+
+///
+fn intersect_cornell_box(ray: Ray) -> SceneIntersectionResult {
+    const INFINITY = 8000000000.0;
+    var result: SceneIntersectionResult;
+
+    result.is_hit = false;
+    result.distance = INFINITY;
+
+    {
+        let i = plane_intersect_check(vec3f(0.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), ray);
+
+        if i.is_hit && i.distance < result.distance {
+            result.is_hit = true;
+
+            result.distance = i.distance;
+            result.emission = vec3f(0.0, 0.0, 0.0);
+            result.color = vec3f(1.0, 1.0, 1.0);
+            result.normal = vec3f(0.0, 1.0, 0.0);
+            result.metallic = 0.0;
+            result.roughness = 1.0;
+        }
+    }
+
+    {
+        let i = plane_intersect_check(vec3f(-5.0, 0.0, 0.0), vec3f(1.0, 0.0, 0.0), ray);
+
+        if i.is_hit && i.distance < result.distance {
+            result.is_hit = true;
+
+            result.distance = i.distance;
+            result.emission = vec3f(0.0, 0.0, 0.0);
+            result.color = vec3f(0.0, 1.0, 0.0);
+            result.normal = vec3f(1.0, 0.0, 0.0);
+            result.metallic = 0.0;
+            result.roughness = 1.0;
+        }
+    }
+
+    {
+        let i = plane_intersect_check(vec3f(5.0, 0.0, 0.0), vec3f(-1.0, 0.0, 0.0), ray);
+
+        if i.is_hit && i.distance < result.distance {
+            result.is_hit = true;
+
+            result.distance = i.distance;
+            result.emission = vec3f(0.0, 0.0, 0.0);
+            result.color = vec3f(1.0, 0.0, 0.0);
+            result.normal = vec3f(-1.0, 0.0, 0.0);
+            result.metallic = 0.0;
+            result.roughness = 1.0;
+        }
+    }
+
+    {
+        let i = plane_intersect_check(vec3f(0.0, 0.0, -5.0), vec3f(0.0, 0.0, 1.0), ray);
+
+        if i.is_hit && i.distance < result.distance {
+            result.is_hit = true;
+
+            result.distance = i.distance;
+            result.emission = vec3f(0.0, 0.0, 0.0);
+            result.color = vec3f(1.0, 1.0, 1.0);
+            result.normal = vec3f(0.0, 0.0, 1.0);
+            result.metallic = 0.0;
+            result.roughness = 1.0;
+        }
+    }
+
+    {
+        let i = plane_intersect_check(vec3f(0.0, 10.0, 0.0), vec3f(0.0, -1.0, 0.0), ray);
+
+        if i.is_hit && i.distance < result.distance {
+            result.is_hit = true;
+
+            result.distance = i.distance;
+            result.emission = vec3f(1.0, 1.0, 1.0);
+            result.color = vec3f(1.0, 1.0, 1.0) * 128.0;
+            result.normal = vec3f(0.0, -1.0, 0.0);
+            result.metallic = 0.0;
+            result.roughness = 1.0;
+        }
+    }
+
+    return result;
 }
 
 fn intersect_scene(ray: Ray) -> SceneIntersectionResult {
@@ -149,16 +237,31 @@ fn intersect_scene(ray: Ray) -> SceneIntersectionResult {
     result.is_hit = false;
     result.distance = INFINITY;
 
+    // {
+    //     let i = sphere_intersect_check(vec3f(0.0, 2.0, -3.0), 1.0, ray);
+
+    //     if i.is_hit && i.distance < result.distance {
+    //         result.is_hit = true;
+    //         result.distance = i.distance;
+    //         result.color = vec3f(1.0, 1.0, 1.0);
+    //         result.emission = vec3f(10.0, 10.0, 10.0);
+    //         result.normal = i.normal;
+    //         result.metallic = 1.0;
+    //         result.roughness = 0.3;
+    //     }
+    // }
+
     {
-        let i = sphere_intersect_check(vec3f(0.0, 2.0, -3.0), 1.0, ray);
+        let i = sphere_intersect_check(vec3f(1.1, 0.55, -2.2), 0.5, ray);
 
         if i.is_hit && i.distance < result.distance {
             result.is_hit = true;
             result.distance = i.distance;
-            result.color = vec3f(1.0, 1.0, 1.0);
-            result.emission = vec3f(10.0, 10.0, 10.0);
+            result.color = vec3f(0.80, 0.47, 0.30);
+            result.emission = vec3f(0.0, 0.0, 0.0);
             result.normal = i.normal;
-            // result.roughness = 1.0;
+            result.metallic = 0.0;
+            result.roughness = 1.0;
         }
     }
 
@@ -171,11 +274,13 @@ fn intersect_scene(ray: Ray) -> SceneIntersectionResult {
             result.color = vec3f(0.30, 0.47, 0.80);
             result.emission = vec3f(0.0, 0.0, 0.0);
             result.normal = i.normal;
-            // result.roughness = 1.0;
+            result.metallic = 1.0;
+            result.roughness = 1.0;
         }
     }
 
-    if box_intersect_test(vec3f(-12.0, -1.001, -12.0), vec3f(12.0, -0.999, 12.0), ray) {
+    // if box_intersect_test(vec3f(-12.0, -1.001, -12.0), vec3f(12.0, -0.999, 12.0), ray)
+    {
         let i = plane_intersect_check(vec3f(0.0, -1.0, 0.0), vec3f(0.0, 1.0, 0.0), ray);
 
         if i.is_hit && i.distance < result.distance {
@@ -185,7 +290,8 @@ fn intersect_scene(ray: Ray) -> SceneIntersectionResult {
             result.emission = vec3f(0.0, 0.0, 0.0);
             result.color = vec3f(0.8, 0.4, 0.4);
             result.normal = vec3f(0.0, 1.0, 0.0);
-            // result.roughness = 0.001;
+            result.metallic = 0.0;
+            result.roughness = 1.0;
         }
     }
 
@@ -198,7 +304,8 @@ fn intersect_scene(ray: Ray) -> SceneIntersectionResult {
             result.color = vec3f(0.8, 0.8, 0.8);
             result.emission = vec3f(0.0, 0.0, 0.0);
             result.normal = i.normal;
-            // result.roughness = 0.001;
+            result.metallic = 0.0;
+            result.roughness = 0.0;
         }
     }
 
@@ -207,6 +314,72 @@ fn intersect_scene(ray: Ray) -> SceneIntersectionResult {
 
 const MAX_BOUNCE: u32 = 12;
 
+/// Helper for 'G' BRDF term calculation
+fn ggx_partial_geometry_schlick(nd: f32, k: f32) -> f32 {
+    return nd / (nd * (1 - k) + k);
+}
+
+/// 'G' Cook-Torrance BRDF terPath tracing unifies the three effects essentially. You simulate the direct lighting, and then there is no difference between the RT reflections and the GI.m
+///
+/// # Note
+/// `k` parameter is function from alpha and is different for IBL and direct lighting
+fn ggx_geometry_smith(nv: f32, nl: f32, k: f32) -> f32 {
+    return ggx_partial_geometry_schlick(nv, k) * ggx_partial_geometry_schlick(nl, k);
+}
+
+/// 'D' Cook-Torrance BRDF term
+fn ggx_distribution_trowbridge_reitz(nh: f32, alpha: f32) -> f32 {
+    let alpha2 = alpha * alpha;
+    let den = nh * nh * (alpha2 - 1) + 1;
+    return alpha2 / (radians(180) * den * den);
+}
+
+/// 'F' Cook-Torrance BRDF term
+fn frensel_schlick(f0: vec3<f32>, hv: f32) -> vec3<f32> {
+    return f0 + (1 - f0) * pow(1 - hv, 5);
+}
+
+/// Cook-Torrance BRDF function calculation
+fn brdf_cook_torrance(
+    base_color: vec3<f32>,
+    metallic: f32,
+    roughness: f32,
+    normal: vec3<f32>,
+    light: vec3<f32>,
+    view: vec3<f32>,
+) -> vec3<f32> {
+    let nl = max(0.001, dot(normal, light));
+    let nv = max(0.001, dot(normal, view));
+
+    let half = normalize(view + light);
+
+    let nh = max(0.001, dot(normal, half));
+    let hv = max(0.001, dot(half, view));
+
+    let alpha = roughness * roughness;
+
+    // Alpha remapping for directional light for Smith geometry term
+    let k = (alpha + 1) * (alpha + 1) / 8;
+
+    let d = ggx_distribution_trowbridge_reitz(nh, alpha);
+    let g = ggx_geometry_smith(nv, nl, k);
+    let f = frensel_schlick(mix(vec3<f32>(0.04), base_color, vec3<f32>(metallic)), hv);
+
+    let diff = (1 - f) * base_color * ((1.0 - metallic) * nl / radians(180));
+    let spec = d * g * f / (4 * nv);
+
+    return diff + spec;
+}
+
+/// Lambertian BRDF
+fn brdf_lambert(
+    base_color: vec3<f32>,
+    normal: vec3<f32>,
+    light_direction: vec3<f32>
+) -> vec3<f32> {
+    return base_color * clamp(dot(normal, light_direction), 0.0, 1.0) * (1.0 / radians(180.0));
+}
+
 fn trace(init_ray: Ray) -> vec3f {
     var ray_color = vec3f(1.0, 1.0, 1.0);
     var incoming_light = vec3f(0.0, 0.0, 0.0);
@@ -214,24 +387,46 @@ fn trace(init_ray: Ray) -> vec3f {
 
     var index = MAX_BOUNCE + 1;
 
-    while index > 0 {
-        let result = intersect_scene(ray);
+    while true {
+        let result = intersect_cornell_box(ray);
 
-        // Consider sky being completely black
+        // Calculate sun emission on scene intersection fail
         if !result.is_hit {
+            // let sun_direction = normalize(vec3f(0.0, 2.0, -3.0));
+            // let sun_radius = 0.995;
+            // let sun_force = 200.0;
+
+            // incoming_light += f32(dot(ray.direction, sun_direction) >= sun_radius) * sun_force * ray_color;
             break;
         }
 
         incoming_light += result.emission * ray_color;
+
+        index -= 1;
+        if index == 0 {
+            break;
+        }
+
+        let view_direction = ray.direction;
 
         ray.origin += ray.direction * result.distance + result.normal * 0.001;
         ray.direction = rand_vec3();
         ray.direction *= sign(dot(ray.direction, result.normal));
 
         // Use Lambertian BRDF!
-        ray_color *= result.color * clamp(dot(result.normal, ray.direction), 0.0, 1.0) * (1.0 / radians(180.0));
-
-        index = index - 1;
+        // ray_color *= brdf_lambert(
+        //     result.color,
+        //     result.normal,
+        //     ray.direction,
+        // );
+        ray_color *= brdf_cook_torrance(
+            result.color,
+            result.metallic,
+            result.roughness,
+            result.normal,
+            ray.direction,
+            view_direction,
+        );
     }
 
     return incoming_light;
@@ -245,6 +440,7 @@ fn tex_coord_to_ray(tex_coord: vec2f) -> Ray {
         + camera.right * camera.projection_width * coord.x
         + camera.up * camera.projection_height * coord.y
     );
+
     return ray;
 }
 
