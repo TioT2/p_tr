@@ -390,11 +390,9 @@ fn brdf_cook_torrance(
     let g = ggx_geometry_smith(nv, nl, k);
     let f = frensel_schlick(f0, hv);
 
-    // let diff = (1 - f) * base_color * ((1.0 - metallic) * nl / radians(180));
-    let diff = (1 - f) * albedo * nl / radians(180);
+    let diff = (1 - f) * albedo * nl / radians(180.0);
     let spec = d * g * f / (4 * nv);
 
-    // return diff + spec;
     return diff + spec;
 }
 
@@ -427,7 +425,7 @@ fn trace(init_ray: Ray) -> vec3f {
             break;
         }
 
-        incoming_light += result.emission * ray_color;
+        incoming_light += result.emission * ray_color.rgb;
 
         index -= 1;
         if index == 0 {
@@ -446,23 +444,8 @@ fn trace(init_ray: Ray) -> vec3f {
         // alpha *= alpha;
         // let distrib_rand = rand_f32();
         // let cos_theta_2 = (1.0 - distrib_rand) / (1.0 + (alpha - 1.0) * distrib_rand);
-        // let dot_dir_normal = dot(ray.direction, result.normal);
-        // ray.direction = normalize(ray.direction - result.normal * dot_dir_normal) * sign(dot_dir_normal);
-        // ray.direction = ray.direction * sqrt(1.0 - cos_theta_2) + result.normal * sqrt(cos_theta_2);
-
-        // fn rand_vec3_weighted(alpha2: f32) {
-        //     let r1 = rand_f32();
-        //     let r2 = rand_f32();
-        //     let phi = radians(360.0) * r1;
-        //     let cos_theta_2 = (1.0 - r2) / (1.0 + (alpha2 - 1.0) * r2);
-        // }
-
-        // Use Lambertian BRDF!
-        // ray_color *= brdf_lambert(
-        //     result.color,
-        //     result.normal,
-        //     ray.direction,
-        // );
+        // ray.direction = normalize(ray.direction - result.normal * dot(ray.direction, result.normal));
+        // ray.direction = result.normal * sqrt(1.0 - cos_theta_2) + ray.direction * sqrt(cos_theta_2);
 
         ray_color *= brdf_cook_torrance(
             result.color,
@@ -502,9 +485,11 @@ fn fs_main(@builtin(position) frag_coord_4f: vec4f, @location(0) tex_coord: vec2
         out_color += trace(tex_coord_to_ray(tex_coord + system.texel_size * vec2f(rand_f32(), rand_f32())));
     }
     out_color /= f32(sample_count);
+
+    let compressed_color = out_color / (out_color + 0.3);
     let collected_color = textureLoad(read_collector, vec2i(frag_coord_4f.xy), 0).xyz;
 
-    return vec4f(collected_color * f32(system.static_frame_index != 0) + out_color, 0.0);
+    return vec4f(collected_color * f32(system.static_frame_index != 0) + compressed_color, 0.0);
 } // fn fs_main
 
 // file shader.wgsl
