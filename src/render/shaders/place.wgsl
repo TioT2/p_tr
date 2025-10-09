@@ -23,10 +23,11 @@ fn vs_main(@builtin(vertex_index) index: u32) -> VsOut {
 }
 
 struct System {
-    resolution: vec2f,
+    resolution: vec2<f32>,
     time: f32,
     static_frame_index: u32,
-    texel_size: vec2f,
+    resolution_scale: vec2<f32>,
+    texel_size: vec2<f32>,
 }
 
 @group(0) @binding(1) var<uniform> system: System;
@@ -34,9 +35,10 @@ struct System {
 
 @fragment
 fn fs_main(@builtin(position) frag_coord_4f: vec4f, @location(0) tex_coord: vec2f) -> @location(0) vec4f {
-    let light = textureLoad(light_collector, vec2i(frag_coord_4f.xy), 0) / f32(system.static_frame_index + 1);
+    let light = textureLoad(light_collector, vec2i(frag_coord_4f.xy / system.resolution_scale), 0) / f32(system.static_frame_index + 1);
 
-    return light;//light / (light + 1.0);
+    // return light / (light + 1.0);
+    return light;
 } // fn fs_main
 
 // file shader.wgsl

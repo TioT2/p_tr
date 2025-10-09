@@ -33,10 +33,11 @@ struct Camera {
 }
 
 struct System {
-    resolution: vec2f,
+    resolution: vec2<f32>,
     time: f32,
     static_frame_index: u32,
-    texel_size: vec2f,
+    resolution_scale: vec2<f32>,
+    texel_size: vec2<f32>,
 }
 
 @group(0) @binding(0) var<uniform> camera: Camera;
@@ -58,7 +59,7 @@ fn rand_f32() -> f32 {
 
 fn rand_vec3() -> vec3f {
     let theta = radians(360.0) * rand_f32();
-    let phi = acos(0.999 - 1.998 * rand_f32());
+    let phi = acos(1.0 - 2.0 * rand_f32());
     return vec3f(
         sin(phi) * cos(theta),
         cos(phi),
@@ -144,7 +145,7 @@ struct SceneIntersectionResult {
     normal: vec3f,
 }
 
-///
+/// Intersect with cornell box
 fn intersect_cornell_box(ray: Ray) -> SceneIntersectionResult {
     const INFINITY = 8000000000.0;
     var result: SceneIntersectionResult;
@@ -152,6 +153,21 @@ fn intersect_cornell_box(ray: Ray) -> SceneIntersectionResult {
     result.is_hit = false;
     result.distance = INFINITY;
 
+    {
+        let i = sphere_intersect_check(vec3f(2.0, 3.0, -2.0), 2.0, ray);
+
+        if i.is_hit && i.distance < result.distance {
+            result.is_hit = true;
+            result.distance = i.distance;
+            result.color = vec3f(0.30, 0.47, 0.80);
+            result.emission = vec3f(0.0, 0.0, 0.0);
+            result.normal = i.normal;
+            result.metallic = 0.2;
+            result.roughness = 0.8;
+        }
+    }
+
+    // Bottom plane
     {
         let i = plane_intersect_check(vec3f(0.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), ray);
 
@@ -167,6 +183,7 @@ fn intersect_cornell_box(ray: Ray) -> SceneIntersectionResult {
         }
     }
 
+    // Left plane
     {
         let i = plane_intersect_check(vec3f(-5.0, 0.0, 0.0), vec3f(1.0, 0.0, 0.0), ray);
 
@@ -182,6 +199,7 @@ fn intersect_cornell_box(ray: Ray) -> SceneIntersectionResult {
         }
     }
 
+    // Right plane
     {
         let i = plane_intersect_check(vec3f(5.0, 0.0, 0.0), vec3f(-1.0, 0.0, 0.0), ray);
 
@@ -197,6 +215,7 @@ fn intersect_cornell_box(ray: Ray) -> SceneIntersectionResult {
         }
     }
 
+    // Back plane
     {
         let i = plane_intersect_check(vec3f(0.0, 0.0, -5.0), vec3f(0.0, 0.0, 1.0), ray);
 
@@ -207,11 +226,12 @@ fn intersect_cornell_box(ray: Ray) -> SceneIntersectionResult {
             result.emission = vec3f(0.0, 0.0, 0.0);
             result.color = vec3f(1.0, 1.0, 1.0);
             result.normal = vec3f(0.0, 0.0, 1.0);
-            result.metallic = 0.0;
-            result.roughness = 1.0;
+            result.metallic = 0.95;
+            result.roughness = 0.05;
         }
     }
 
+    // Top plane
     {
         let i = plane_intersect_check(vec3f(0.0, 10.0, 0.0), vec3f(0.0, -1.0, 0.0), ray);
 
@@ -319,7 +339,9 @@ fn ggx_partial_geometry_schlick(nd: f32, k: f32) -> f32 {
     return nd / (nd * (1 - k) + k);
 }
 
-/// 'G' Cook-Torrance BRDF terPath tracing unifies the three effects essentially. You simulate the direct lighting, and then there is no difference between the RT reflections and the GI.m
+/// 'G' Cook-Torrance BRDF term
+/// Path tracing unifies the three effects essentially.
+/// You simulate the direct lighting, and then there is no difference between the RT reflections and the GI.
 ///
 /// # Note
 /// `k` parameter is function from alpha and is different for IBL and direct lighting
@@ -361,13 +383,18 @@ fn brdf_cook_torrance(
     // Alpha remapping for directional light for Smith geometry term
     let k = (alpha + 1) * (alpha + 1) / 8;
 
+    let f0 = mix(vec3<f32>(0.04), base_color, vec3<f32>(metallic));
+    let albedo = mix(base_color, vec3<f32>(0.04), vec3<f32>(metallic));
+
     let d = ggx_distribution_trowbridge_reitz(nh, alpha);
     let g = ggx_geometry_smith(nv, nl, k);
-    let f = frensel_schlick(mix(vec3<f32>(0.04), base_color, vec3<f32>(metallic)), hv);
+    let f = frensel_schlick(f0, hv);
 
-    let diff = (1 - f) * base_color * ((1.0 - metallic) * nl / radians(180));
+    // let diff = (1 - f) * base_color * ((1.0 - metallic) * nl / radians(180));
+    let diff = (1 - f) * albedo * nl / radians(180);
     let spec = d * g * f / (4 * nv);
 
+    // return diff + spec;
     return diff + spec;
 }
 
@@ -407,11 +434,28 @@ fn trace(init_ray: Ray) -> vec3f {
             break;
         }
 
-        let view_direction = ray.direction;
+        let prev_ray_direction = ray.direction;
 
         ray.origin += ray.direction * result.distance + result.normal * 0.001;
+
         ray.direction = rand_vec3();
         ray.direction *= sign(dot(ray.direction, result.normal));
+
+        // var alpha = result.roughness;
+        // alpha *= alpha;
+        // alpha *= alpha;
+        // let distrib_rand = rand_f32();
+        // let cos_theta_2 = (1.0 - distrib_rand) / (1.0 + (alpha - 1.0) * distrib_rand);
+        // let dot_dir_normal = dot(ray.direction, result.normal);
+        // ray.direction = normalize(ray.direction - result.normal * dot_dir_normal) * sign(dot_dir_normal);
+        // ray.direction = ray.direction * sqrt(1.0 - cos_theta_2) + result.normal * sqrt(cos_theta_2);
+
+        // fn rand_vec3_weighted(alpha2: f32) {
+        //     let r1 = rand_f32();
+        //     let r2 = rand_f32();
+        //     let phi = radians(360.0) * r1;
+        //     let cos_theta_2 = (1.0 - r2) / (1.0 + (alpha2 - 1.0) * r2);
+        // }
 
         // Use Lambertian BRDF!
         // ray_color *= brdf_lambert(
@@ -419,13 +463,14 @@ fn trace(init_ray: Ray) -> vec3f {
         //     result.normal,
         //     ray.direction,
         // );
+
         ray_color *= brdf_cook_torrance(
             result.color,
             result.metallic,
             result.roughness,
             result.normal,
             ray.direction,
-            view_direction,
+            -prev_ray_direction,
         );
     }
 
@@ -446,9 +491,17 @@ fn tex_coord_to_ray(tex_coord: vec2f) -> Ray {
 
 @fragment
 fn fs_main(@builtin(position) frag_coord_4f: vec4f, @location(0) tex_coord: vec2f) -> @location(0) vec4f {
-    _rand_seed = u32(tex_coord.x * 3123456.0) * u32(tex_coord.y * 8765345.0) * u32((cos(system.time) + 1.123123) * 324234234.5);
+    _rand_seed = 1
+        * u32(tex_coord.x * 3123456.0)
+        * u32(tex_coord.y * 8765345.0)
+        * u32(fract(system.time) * 324234234.5);
 
-    let out_color = trace(tex_coord_to_ray(tex_coord + system.texel_size * vec2f(rand_f32(), rand_f32())));
+    let sample_count = 24;
+    var out_color = vec3f(0.0, 0.0, 0.0);
+    for (var i = 0; i < sample_count; i++) {
+        out_color += trace(tex_coord_to_ray(tex_coord + system.texel_size * vec2f(rand_f32(), rand_f32())));
+    }
+    out_color /= f32(sample_count);
     let collected_color = textureLoad(read_collector, vec2i(frag_coord_4f.xy), 0).xyz;
 
     return vec4f(collected_color * f32(system.static_frame_index != 0) + out_color, 0.0);

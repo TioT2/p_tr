@@ -56,6 +56,7 @@ impl System {
             input: input::Input::new(),
             camera: Camera::new(),
         };
+
         result.camera.set(
             Vec3f::new(-3.2, 2.8, 0.3),
             Vec3f::new(-2.4, 2.4, -0.1),

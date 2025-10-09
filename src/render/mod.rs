@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{math::{Ext2u, Vec2f, Vec3f}};
+use crate::math::{Ext2u, Vec2f, Vec3f};
 
 /// Render camera descriptor
 pub struct CameraDescriptor {
@@ -38,12 +38,12 @@ struct CameraBufferData {
     projection_height: f32,
 }
 
-#[derive(Default)]
 #[repr(C)]
 struct SystemBufferData {
     resolution: Vec2f,
     time: f32,
     static_frame_index: u32,
+    resolution_scale: Vec2f,
 
     texel_size: Vec2f,
 }
@@ -81,6 +81,12 @@ pub struct Render {
     /// Configuration of the surface
     surface_configuration: wgpu::SurfaceConfiguration,
 
+    /// Value to scale resolution by
+    collector_extent_scale: u32,
+
+    /// Renderer extent
+    collector_extent: Ext2u,
+
     /// Buffer that holds camera data
     camera_buffer: wgpu::Buffer,
 
@@ -90,6 +96,7 @@ pub struct Render {
     /// Index of the current static frame (e.g. amount of collected frames in target texture)
     static_frame_index: u32,
 
+    /// Bind group layout for the collector
     collector_bind_group_layout: wgpu::BindGroupLayout,
 
     /// Bind group used in rendering process
@@ -347,8 +354,16 @@ impl Render {
             cache: None,
         });
 
+        let collector_extent_scale = 4;
+        let collector_extent = Ext2u::new(
+            surface_configuration.width / collector_extent_scale,
+            surface_configuration.height / collector_extent_scale
+        );
+
         Some(Self {
-            collectors: Self::create_collectors(&device, &collector_bind_group_layout, surface_ext),
+            collector_extent_scale,
+            collector_extent,
+            collectors: Self::create_collectors(&device, &collector_bind_group_layout, collector_extent),
             device,
             queue,
             surface,
@@ -368,9 +383,21 @@ impl Render {
     /// Render resize function
     pub fn resize(&mut self, new_extent: Ext2u) {
         self.static_frame_index = 0;
-        self.collectors = Self::create_collectors(&self.device, &self.collector_bind_group_layout, new_extent.clone());
+
+        self.collector_extent = Ext2u::new(
+            new_extent.w / self.collector_extent_scale,
+            new_extent.h / self.collector_extent_scale,
+        );
+
+        self.collectors = Self::create_collectors(
+            &self.device,
+            &self.collector_bind_group_layout,
+            self.collector_extent
+        );
+
         self.surface_configuration.width = new_extent.w;
         self.surface_configuration.height = new_extent.h;
+
         self.surface.configure(&self.device, &self.surface_configuration);
     }
 
@@ -399,16 +426,16 @@ impl Render {
             Ok(v) => v,
             Err(_) => return,
         };
-        let image_view = image.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let target_image_view = image.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let image_texture_size = image.texture.size();
-        let resolution = Vec2f::new(image_texture_size.width as f32, image_texture_size.height as f32);
+        let target_image_size = image.texture.size();
+        let resolution = Vec2f::new(target_image_size.width as f32, target_image_size.height as f32);
         let system_buffer_data = SystemBufferData {
             resolution,
             texel_size: resolution.map(f32::recip),
             time: std::time::Instant::now().duration_since(self.render_start_time).as_secs_f32(),
+            resolution_scale: Vec2f::new(self.collector_extent_scale as f32, self.collector_extent_scale as f32),
             static_frame_index: self.static_frame_index,
-            ..Default::default()
         };
 
         // Update system buffer
@@ -448,7 +475,7 @@ impl Render {
                     store: wgpu::StoreOp::Store,
                 },
                 resolve_target: None,
-                view: &image_view,
+                view: &target_image_view,
                 depth_slice: None,
             })],
             ..Default::default()
