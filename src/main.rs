@@ -56,7 +56,7 @@ impl System {
             Vec3f::new(2.0, 3.0, -2.0),
             2.0,
             shape::Material {
-                base_color: Vec3f::new(0.30, 0.47, 0.80),
+                base_color: Vec3f::new(0.30f32, 0.47, 0.80).map(|x| x.powf(2.2)),
                 emission: Vec3f::new(0.0, 0.0, 0.0),
                 metallic: 0.2,
                 roughness: 0.8,
@@ -68,7 +68,7 @@ impl System {
             let center = Vec3f::new(0.0, 11.9, 0.0);
             let size = 2.0;
             let material = shape::Material {
-                emission: Vec3f::new(1.0, 1.0, 1.0) * 100.0,
+                emission: Vec3f::new(1.0, 1.0, 1.0) * 500.0,
                 base_color: Vec3f::new(1.0, 1.0, 1.0),
                 metallic: 0.0,
                 roughness: 1.0,

@@ -59,7 +59,7 @@ fn rand_f32() -> f32 {
 
 fn rand_vec3() -> vec3f {
     let theta = radians(360.0) * rand_f32();
-    let phi = acos(1.0 - 2.0 * rand_f32());
+    let phi = acos(2.0 * rand_f32() - 1.0);
     return vec3f(
         sin(phi) * cos(theta),
         cos(phi),
@@ -179,11 +179,15 @@ fn tex_coord_to_ray(tex_coord: vec2f) -> Ray {
 @fragment
 fn fs_main(@builtin(position) frag_coord_4f: vec4f, @location(0) tex_coord: vec2f) -> @location(0) vec4f {
     _rand_seed = 1
-        * u32(tex_coord.x * 3123456.0)
-        * u32(tex_coord.y * 8765345.0)
-        * u32(fract(system.time) * 324234234.5);
+        // * u32(tex_coord.x * 3123456.0)
+        // * u32(tex_coord.y * 8765345.0)
+        // * u32(fract(system.time) * 324234234.5);
+        * u32(tex_coord.x * 3156.2645)
+        * u32(tex_coord.y * 8745.7853)
+        * u32(fract(system.time) * 7123.3195)
+        + u32(fract(system.time) * 2348.5473);
 
-    let sample_count = 4;
+    let sample_count = 8;
 
     var out_color = vec3f(0.0, 0.0, 0.0);
     for (var i = 0; i < sample_count; i++) {
