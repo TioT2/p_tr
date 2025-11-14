@@ -177,19 +177,20 @@ fn fs_main(@builtin(position) frag_coord_4f: vec4f, @location(0) tex_coord: vec2
     let sample_count: u32 = 8;
 
     // Load already collected value to the output color
-    var out_color = textureLoad(read_collector, vec2i(frag_coord_4f.xy), 0).xyz;
+    var out_color = textureLoad(read_collector, vec2i(frag_coord_4f.xy), 0);
     out_color *= f32(system.static_frame_index != 0);
+    out_color.w += f32(system.static_frame_index == 0) * 0.001;
 
     // Add new traces
     for (var i: u32 = 0; i < sample_count; i++) {
         let trace_dir = tex_coord_to_ray(tex_coord + system.texel_size * vec2f(rand_f32(), rand_f32()));
         let trace_light = max(trace(trace_dir), vec3f(0.0));
 
-        out_color += (trace_light - out_color) / f32(system.static_frame_index * sample_count + i + 1);
+        out_color += vec4f((trace_light - out_color.xyz) / out_color.w, 1.0);
     }
 
     // Save!
-    return vec4f(out_color, 0.0);
+    return out_color;
 } // fn fs_main
 
 // file shader.wgsl
