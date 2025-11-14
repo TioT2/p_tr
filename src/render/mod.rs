@@ -2,6 +2,9 @@ use std::sync::Arc;
 
 use crate::math::{Ext2u, Vec2f, Vec3f};
 
+/// Shape
+pub mod shape;
+
 /// Render camera descriptor
 pub struct CameraDescriptor {
     /// Camrea origin
@@ -67,6 +70,47 @@ struct CollectorTexture {
     bind_group: wgpu::BindGroup,
 }
 
+/// Scene rendering code generator structure
+struct ShaderGenerator {
+    /// Before bind point
+    prefix: String,
+
+    /// After bind point
+    postfix: String,
+}
+
+impl ShaderGenerator {
+    /// Construct shader generator
+    pub fn new(source: &str) -> Self {
+        let mut prefix = String::new();
+        let mut postfix = String::new();
+
+        let mut dst = &mut prefix;
+
+        for line in source.lines() {
+            if line.starts_with("//$") {
+                dst = &mut postfix;
+            } else {
+                dst.push_str(line);
+                dst.push('\n');
+            }
+        }
+
+        Self { prefix, postfix }
+    }
+
+    /// Generate shader
+    pub fn generate(&self, shape: &dyn shape::Shape) -> String {
+        let mut chars = Vec::new();
+
+        chars.extend_from_slice(&self.prefix.as_bytes());
+        shape.gen_intersection(0, &mut chars).unwrap();
+        chars.extend_from_slice(&self.postfix.as_bytes());
+
+        String::from_utf8(chars).unwrap()
+    }
+}
+
 /// Renderer structure
 pub struct Render {
     /// Destination surface
@@ -102,6 +146,9 @@ pub struct Render {
     /// Bind group used in rendering process
     render_bind_group: wgpu::BindGroup,
 
+    /// Rendering pipeline layout
+    render_pipeline_layout: wgpu::PipelineLayout,
+
     /// Pipeline used in rendering process
     render_pipeline: wgpu::RenderPipeline,
 
@@ -113,6 +160,9 @@ pub struct Render {
 
     /// Time of the rendering start
     render_start_time: std::time::Instant,
+
+    /// Shader generator
+    shader_generator: ShaderGenerator,
 
     /// Window holder
     _window_handle: Arc<dyn wgpu::WindowHandle>,
@@ -164,6 +214,48 @@ impl Render {
         };
 
         std::array::from_fn(build_collector)
+    }
+
+    /// Build main rendering pipeline
+    fn build_main_pipeline(
+        device: &wgpu::Device,
+        pipeline_layout: &wgpu::PipelineLayout,
+        shader_source: &str,
+    ) -> wgpu::RenderPipeline {
+        // Generate some empty render shader module
+        let render_shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Main Shader"),
+            source: wgpu::ShaderSource::Wgsl(shader_source.into())
+        });
+
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render pipeline"),
+            depth_stencil: None,
+            fragment: Some(wgpu::FragmentState {
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                entry_point: Some("fs_main"),
+                module: &render_shader_module,
+                targets: &[Some(wgpu::ColorTargetState {
+                    blend: None,
+                    format: wgpu::TextureFormat::Rgba32Float,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })]
+            }),
+            layout: Some(pipeline_layout),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            vertex: wgpu::VertexState {
+                buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                entry_point: Some("vs_main"),
+                module: &render_shader_module,
+            },
+            cache: None,
+        })
     }
 
     pub fn new(window: Arc<dyn wgpu::WindowHandle>, surface_ext: Ext2u) -> Option<Self> {
@@ -281,39 +373,13 @@ impl Render {
             ..Default::default()
         });
 
-        let render_shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Main Shader"),
-            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!("shaders/render.wgsl")))
-        });
+        let shader_generator = ShaderGenerator::new(include_str!("shaders/render.wgsl"));
 
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Main pipeline"),
-            depth_stencil: None,
-            fragment: Some(wgpu::FragmentState {
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                entry_point: Some("fs_main"),
-                module: &render_shader_module,
-                targets: &[Some(wgpu::ColorTargetState {
-                    blend: None,
-                    format: wgpu::TextureFormat::Rgba32Float,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })]
-            }),
-            layout: Some(&render_pipeline_layout),
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleStrip,
-                ..Default::default()
-            },
-            vertex: wgpu::VertexState {
-                buffers: &[],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                entry_point: Some("vs_main"),
-                module: &render_shader_module,
-            },
-            cache: None,
-        });
+        let render_pipeline = Self::build_main_pipeline(
+            &device,
+            &render_pipeline_layout,
+            &shader_generator.generate(&shape::Scene::new())
+        );
 
         let place_shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Place Shader"),
@@ -354,7 +420,7 @@ impl Render {
             cache: None,
         });
 
-        let collector_extent_scale = 2;
+        let collector_extent_scale = 4;
         let collector_extent = Ext2u::new(
             surface_configuration.width / collector_extent_scale,
             surface_configuration.height / collector_extent_scale
@@ -370,11 +436,13 @@ impl Render {
             render_bind_group,
             camera_buffer,
             system_buffer,
+            render_pipeline_layout,
             render_pipeline,
             place_pipeline,
             static_frame_index: 0,
             collector_bind_group_layout,
             surface_configuration,
+            shader_generator,
             render_start_time: std::time::Instant::now(),
             _window_handle: window,
         })
@@ -418,6 +486,25 @@ impl Render {
             0,
             unsafe { into_byte_slice(&buffer_camera_data) }
         );
+        self.static_frame_index = 0;
+    }
+
+    /// Set currently raytraced shape
+    pub fn set_traced_shape(&mut self, scene: &dyn shape::Shape) {
+        let shader = self.shader_generator.generate(scene);
+        let render_pipeline = Self::build_main_pipeline(
+            &self.device,
+            &self.render_pipeline_layout,
+            &shader
+        );
+
+        self.render_pipeline = render_pipeline;
+
+        self.reset_frame();
+    }
+
+    /// Reset frame collection
+    pub fn reset_frame(&mut self) {
         self.static_frame_index = 0;
     }
 

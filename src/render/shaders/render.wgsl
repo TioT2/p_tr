@@ -94,6 +94,46 @@ fn sphere_intersect_check(center: vec3f, radius: f32, ray: Ray) -> SphereInterse
     return result;
 }
 
+struct QuadIntersectionResult {
+    distance: f32,
+    is_hit: bool,
+    uv: vec2f,
+}
+
+struct Quad {
+    normal: vec3f,
+    base: vec3f,
+    u: vec3f,
+    v: vec3f,
+}
+
+// Construct compact quad
+fn quad_ctor(base: vec3f, u: vec3f, v: vec3f) -> Quad {
+    var q: Quad;
+
+    q.normal = normalize(cross(u, v));
+    q.base = base;
+    q.u = u;
+    q.v = v;
+
+    return q;
+}
+
+fn quad_intersect_check(q: Quad, ray: Ray) -> QuadIntersectionResult {
+    var result: QuadIntersectionResult;
+
+    result.distance = (dot(q.base - ray.origin, q.normal)) / dot(q.normal, ray.direction);
+
+    let location = ray.direction * result.distance + ray.origin;
+
+    result.uv = vec2f(dot(location - q.base, q.u), dot(location - q.base, q.v));
+    result.is_hit = result.distance > 0.0
+        && result.uv.x > 0.0 && result.uv.y > 0.0
+        && result.uv.x < 1.0 && result.uv.y < 1.0;
+
+    return result;
+}
+
 struct PlaneIntersectResult {
     distance: f32,
     is_hit: bool,
@@ -122,7 +162,7 @@ fn box_intersect_check(p0: vec3f, p1: vec3f, ray: Ray) -> BoxIntersectionResult 
     let t_far = min(min(tv1.x, tv1.y), tv1.z);
     return BoxIntersectionResult(
         /* normal:   */ vec3f(tv0 == vec3f(t_near)) * -sign(ray.direction),
-        /* distance: */ mix(t_far, t_near, f32(t_near > 0.0)),
+        /* distance: */ select(t_far, t_near, t_near > 0.0),
         /* is_hit:   */ t_far >= max(t_near, 0.0),
     );
 }
@@ -132,204 +172,37 @@ fn box_intersect_test(p0: vec3f, p1: vec3f, ray: Ray) -> bool {
     let utv1 = (p1 - ray.origin) / ray.direction;
     let tv0 = min(utv0, utv1);
     let tv1 = max(utv0, utv1);
-    return min(min(tv1.x, tv1.y), tv1.z) >= max(max(max(tv0.x, tv0.y), tv0.z), 0.0);
+    let t_near = max(max(tv0.x, tv0.y), tv0.z);
+    let t_far = min(min(tv1.x, tv1.y), tv1.z);
+
+    return t_far >= max(t_near, 0.0);
 }
 
-struct SceneIntersectionResult {
+// Material structue
+struct Material {
     color: vec3f,
-    metallic: f32,
     roughness: f32,
-    distance: f32,
     emission: vec3f,
+    metallic: f32,
+}
+
+struct IntersectionResult {
+    distance: f32,
     is_hit: bool,
     normal: vec3f,
+    material: Material,
 }
 
-/// Intersect with cornell box
-fn intersect_cornell_box(ray: Ray) -> SceneIntersectionResult {
-    const INFINITY = 8000000000.0;
-    var result: SceneIntersectionResult;
+// Scene intersection result
+fn intersect_scene(ray: Ray) -> IntersectionResult {
+    var result0: IntersectionResult;
 
-    result.is_hit = false;
-    result.distance = INFINITY;
+    result0.is_hit = false;
+    result0.distance = 8000000000.0;
 
-    {
-        let i = sphere_intersect_check(vec3f(2.0, 3.0, -2.0), 2.0, ray);
+//$
 
-        if i.is_hit && i.distance < result.distance {
-            result.is_hit = true;
-            result.distance = i.distance;
-            result.color = vec3f(0.30, 0.47, 0.80);
-            result.emission = vec3f(0.0, 0.0, 0.0);
-            result.normal = i.normal;
-            result.metallic = 0.2;
-            result.roughness = 0.8;
-        }
-    }
-
-    // Bottom plane
-    {
-        let i = plane_intersect_check(vec3f(0.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), ray);
-
-        if i.is_hit && i.distance < result.distance {
-            result.is_hit = true;
-
-            result.distance = i.distance;
-            result.emission = vec3f(0.0, 0.0, 0.0);
-            result.color = vec3f(1.0, 1.0, 1.0);
-            result.normal = vec3f(0.0, 1.0, 0.0);
-            result.metallic = 0.0;
-            result.roughness = 1.0;
-        }
-    }
-
-    // Left plane
-    {
-        let i = plane_intersect_check(vec3f(-5.0, 0.0, 0.0), vec3f(1.0, 0.0, 0.0), ray);
-
-        if i.is_hit && i.distance < result.distance {
-            result.is_hit = true;
-
-            result.distance = i.distance;
-            result.emission = vec3f(0.0, 0.0, 0.0);
-            result.color = vec3f(0.0, 1.0, 0.0);
-            result.normal = vec3f(1.0, 0.0, 0.0);
-            result.metallic = 0.0;
-            result.roughness = 1.0;
-        }
-    }
-
-    // Right plane
-    {
-        let i = plane_intersect_check(vec3f(5.0, 0.0, 0.0), vec3f(-1.0, 0.0, 0.0), ray);
-
-        if i.is_hit && i.distance < result.distance {
-            result.is_hit = true;
-
-            result.distance = i.distance;
-            result.emission = vec3f(0.0, 0.0, 0.0);
-            result.color = vec3f(1.0, 0.0, 0.0);
-            result.normal = vec3f(-1.0, 0.0, 0.0);
-            result.metallic = 0.0;
-            result.roughness = 1.0;
-        }
-    }
-
-    // Back plane
-    {
-        let i = plane_intersect_check(vec3f(0.0, 0.0, -5.0), vec3f(0.0, 0.0, 1.0), ray);
-
-        if i.is_hit && i.distance < result.distance {
-            result.is_hit = true;
-
-            result.distance = i.distance;
-            result.emission = vec3f(0.0, 0.0, 0.0);
-            result.color = vec3f(1.0, 1.0, 1.0);
-            result.normal = vec3f(0.0, 0.0, 1.0);
-            result.metallic = 0.95;
-            result.roughness = 0.05;
-        }
-    }
-
-    // Top plane
-    {
-        let i = plane_intersect_check(vec3f(0.0, 10.0, 0.0), vec3f(0.0, -1.0, 0.0), ray);
-
-        if i.is_hit && i.distance < result.distance {
-            result.is_hit = true;
-
-            result.distance = i.distance;
-            result.emission = vec3f(1.0, 1.0, 1.0);
-            result.color = vec3f(1.0, 1.0, 1.0) * 128.0;
-            result.normal = vec3f(0.0, -1.0, 0.0);
-            result.metallic = 0.0;
-            result.roughness = 1.0;
-        }
-    }
-
-    return result;
-}
-
-fn intersect_scene(ray: Ray) -> SceneIntersectionResult {
-    const INFINITY = 8000000000.0;
-    var result: SceneIntersectionResult;
-
-    result.is_hit = false;
-    result.distance = INFINITY;
-
-    // {
-    //     let i = sphere_intersect_check(vec3f(0.0, 2.0, -3.0), 1.0, ray);
-
-    //     if i.is_hit && i.distance < result.distance {
-    //         result.is_hit = true;
-    //         result.distance = i.distance;
-    //         result.color = vec3f(1.0, 1.0, 1.0);
-    //         result.emission = vec3f(10.0, 10.0, 10.0);
-    //         result.normal = i.normal;
-    //         result.metallic = 1.0;
-    //         result.roughness = 0.3;
-    //     }
-    // }
-
-    {
-        let i = sphere_intersect_check(vec3f(1.1, 0.55, -2.2), 0.5, ray);
-
-        if i.is_hit && i.distance < result.distance {
-            result.is_hit = true;
-            result.distance = i.distance;
-            result.color = vec3f(0.80, 0.47, 0.30);
-            result.emission = vec3f(0.0, 0.0, 0.0);
-            result.normal = i.normal;
-            result.metallic = 0.0;
-            result.roughness = 1.0;
-        }
-    }
-
-    {
-        let i = sphere_intersect_check(vec3f(1.1, 0.55, -1.1), 0.5, ray);
-
-        if i.is_hit && i.distance < result.distance {
-            result.is_hit = true;
-            result.distance = i.distance;
-            result.color = vec3f(0.30, 0.47, 0.80);
-            result.emission = vec3f(0.0, 0.0, 0.0);
-            result.normal = i.normal;
-            result.metallic = 1.0;
-            result.roughness = 1.0;
-        }
-    }
-
-    // if box_intersect_test(vec3f(-12.0, -1.001, -12.0), vec3f(12.0, -0.999, 12.0), ray)
-    {
-        let i = plane_intersect_check(vec3f(0.0, -1.0, 0.0), vec3f(0.0, 1.0, 0.0), ray);
-
-        if i.is_hit && i.distance < result.distance {
-            result.is_hit = true;
-
-            result.distance = i.distance;
-            result.emission = vec3f(0.0, 0.0, 0.0);
-            result.color = vec3f(0.8, 0.4, 0.4);
-            result.normal = vec3f(0.0, 1.0, 0.0);
-            result.metallic = 0.0;
-            result.roughness = 1.0;
-        }
-    }
-
-    {
-        let i = box_intersect_check(vec3f(0.0, 0.0, 0.0), vec3f(1.0, -1.0, 1.0), ray);
-
-        if i.is_hit && i.distance < result.distance {
-            result.is_hit = true;
-            result.distance = i.distance;
-            result.color = vec3f(0.8, 0.8, 0.8);
-            result.emission = vec3f(0.0, 0.0, 0.0);
-            result.normal = i.normal;
-            result.metallic = 0.0;
-            result.roughness = 0.0;
-        }
-    }
-
-    return result;
+    return result0;
 }
 
 const MAX_BOUNCE: u32 = 12;
@@ -413,19 +286,20 @@ fn trace(init_ray: Ray) -> vec3f {
     var index = MAX_BOUNCE + 1;
 
     while true {
-        let result = intersect_cornell_box(ray);
+        // let result = intersect_cornell(ray);
+        let result = intersect_scene(ray);
 
         // Calculate sun emission on scene intersection fail
         if !result.is_hit {
             // let sun_direction = normalize(vec3f(0.0, 2.0, -3.0));
-            // let sun_radius = 0.995;
+            // let sun_radius = 0.97;
             // let sun_force = 200.0;
 
             // incoming_light += f32(dot(ray.direction, sun_direction) >= sun_radius) * sun_force * ray_color;
             break;
         }
 
-        incoming_light += result.emission * ray_color.rgb;
+        incoming_light += result.material.emission * ray_color.rgb;
 
         index -= 1;
         if index == 0 {
@@ -436,34 +310,38 @@ fn trace(init_ray: Ray) -> vec3f {
 
         ray.origin += ray.direction * result.distance + result.normal * 0.001;
 
+        // Trace hemisphere-evenly-distributed random ray
         ray.direction = rand_vec3();
         ray.direction *= sign(dot(ray.direction, result.normal));
 
-        // var alpha = result.roughness;
-        // alpha *= alpha;
-        // alpha *= alpha;
-        // let distrib_rand = rand_f32();
-        // let cos_theta_2 = (1.0 - distrib_rand) / (1.0 + (alpha - 1.0) * distrib_rand);
-        // ray.direction = normalize(ray.direction - result.normal * dot(ray.direction, result.normal));
-        // ray.direction = result.normal * sqrt(1.0 - cos_theta_2) + ray.direction * sqrt(cos_theta_2);
-
-        // ray_color *= brdf_lambert(
-        //     result.color,
-        //     result.normal,
-        //     ray.direction,
-        // );
-
-        ray_color *= brdf_cook_torrance(
-            result.color,
-            result.metallic,
-            result.roughness,
+        ray_color *= brdf_lambert(
+            result.material.color,
             result.normal,
             ray.direction,
-            -prev_ray_direction,
         );
+
+        // ray_color *= brdf_cook_torrance(
+        //     result.color,
+        //     result.metallic,
+        //     result.roughness,
+        //     result.normal,
+        //     ray.direction,
+        //     -prev_ray_direction,
+        // );
     }
 
     return incoming_light;
+}
+
+// ACES tonemapping operator performant approximation
+fn tonemap_aces_approx(light: vec3f) -> vec3f {
+    const a = 2.51;
+    const b = 0.03;
+    const c = 2.43;
+    const d = 0.59;
+    const e = 0.14;
+    let v = light * 0.6;
+    return clamp((v * (a * v + b)) / (v * (c * v + d) + e), vec3f(0.0), vec3f(1.0));
 }
 
 fn tex_coord_to_ray(tex_coord: vec2f) -> Ray {
@@ -485,17 +363,21 @@ fn fs_main(@builtin(position) frag_coord_4f: vec4f, @location(0) tex_coord: vec2
         * u32(tex_coord.y * 8765345.0)
         * u32(fract(system.time) * 324234234.5);
 
-    let sample_count = 8;
+    let sample_count = 4;
     var out_color = vec3f(0.0, 0.0, 0.0);
     for (var i = 0; i < sample_count; i++) {
-        out_color += trace(tex_coord_to_ray(tex_coord + system.texel_size * vec2f(rand_f32(), rand_f32())));
+        let trace_dir = tex_coord_to_ray(tex_coord + system.texel_size * vec2f(rand_f32(), rand_f32()));
+        let trace_light = max(trace(trace_dir), vec3f(0.0));
+
+        out_color += tonemap_aces_approx(trace_light);
+        // out_color += trace_light / (trace_light + 0.1);
+        // out_color += clamp(trace_light, vec3f(0.0), vec3f(1.0));
     }
     out_color /= f32(sample_count);
 
-    let compressed_color = out_color / (out_color + 0.3);
     let collected_color = textureLoad(read_collector, vec2i(frag_coord_4f.xy), 0).xyz;
 
-    return vec4f(collected_color * f32(system.static_frame_index != 0) + compressed_color, 0.0);
+    return vec4f(collected_color * f32(system.static_frame_index != 0) + out_color, 0.0);
 } // fn fs_main
 
 // file shader.wgsl

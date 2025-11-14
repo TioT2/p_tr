@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use math::{Ext2u, Vec2f, Vec3f};
 
+use crate::render::shape;
+
 pub mod timer;
 pub mod input;
 pub mod math;
@@ -45,6 +47,117 @@ struct System {
 }
 
 impl System {
+    /// Generate 'Cornell box' shape
+    fn gen_cornell_box() -> Box<dyn shape::Shape> {
+        let mut scene = shape::Scene::new();
+
+        // Sphere
+        scene.add_shape(Box::new(shape::Sphere::new(
+            Vec3f::new(2.0, 3.0, -2.0),
+            2.0,
+            shape::Material {
+                base_color: Vec3f::new(0.30, 0.47, 0.80),
+                emission: Vec3f::new(0.0, 0.0, 0.0),
+                metallic: 0.2,
+                roughness: 0.8,
+            }
+        )));
+
+        // Light source
+        scene.add_shape(Box::new({
+            let center = Vec3f::new(0.0, 11.9, 0.0);
+            let size = 2.0;
+            let material = shape::Material {
+                emission: Vec3f::new(1.0, 1.0, 1.0) * 10.0,
+                base_color: Vec3f::new(1.0, 1.0, 1.0),
+                metallic: 0.0,
+                roughness: 1.0,
+            };
+
+            shape::Aabb::new(center - size, center + size, material)
+        }));
+
+        // Bottom plane
+        scene.add_shape(Box::new(shape::Quad::new(
+            Vec3f::new(-5.0, 0.0, -5.0),
+            Vec3f::new(0.0, 0.0, 1.0) / 30.0,
+            Vec3f::new(1.0, 0.0, 0.0) / 10.0,
+            shape::Material {
+                emission: Vec3f::new(0.0, 0.0, 0.0),
+                base_color: Vec3f::new(1.0, 1.0, 1.0),
+                metallic: 0.0,
+                roughness: 1.0,
+            }
+        )));
+
+        // Left plane
+        scene.add_shape(Box::new(shape::Quad::new(
+            Vec3f::new(-5.0, 0.0, -5.0),
+            Vec3f::new(0.0, 1.0, 0.0) / 10.0,
+            Vec3f::new(0.0, 0.0, 1.0) / 30.0,
+            shape::Material {
+                emission: Vec3f::new(0.0, 0.0, 0.0),
+                base_color: Vec3f::new(0.0, 1.0, 0.0),
+                metallic: 0.0,
+                roughness: 1.0,
+            }
+        )));
+
+        // Right plane
+        scene.add_shape(Box::new(shape::Quad::new(
+            Vec3f::new(5.0, 0.0, -5.0),
+            Vec3f::new(0.0, 0.0, 1.0) / 30.0,
+            Vec3f::new(0.0, 1.0, 0.0) / 10.0,
+            shape::Material {
+                emission: Vec3f::new(0.0, 0.0, 0.0),
+                base_color: Vec3f::new(1.0, 0.0, 0.0),
+                metallic: 0.0,
+                roughness: 1.0,
+            }
+        )));
+
+        // Front plane
+        scene.add_shape(Box::new(shape::Quad::new(
+            Vec3f::new(-5.0, 0.0, 25.0),
+            Vec3f::new(0.0, 1.0, 0.0) / 10.0,
+            Vec3f::new(1.0, 0.0, 0.0) / 10.0,
+            shape::Material {
+                emission: Vec3f::new(0.0, 0.0, 0.0),
+                base_color: Vec3f::new(1.0, 1.0, 1.0),
+                metallic: 0.0,
+                roughness: 1.0,
+            }
+        )));
+
+        // Back plane
+        scene.add_shape(Box::new(shape::Quad::new(
+            Vec3f::new(-5.0, 0.0, -5.0),
+            Vec3f::new(1.0, 0.0, 0.0) / 10.0,
+            Vec3f::new(0.0, 1.0, 0.0) / 10.0,
+            shape::Material {
+                emission: Vec3f::new(0.0, 0.0, 0.0),
+                base_color: Vec3f::new(1.0, 1.0, 1.0),
+                metallic: 0.95,
+                roughness: 0.05,
+            }
+        )));
+
+        // Top plane
+        scene.add_shape(Box::new(shape::Quad::new(
+            Vec3f::new(-5.0, 10.0, -5.0),
+            Vec3f::new(1.0, 0.0, 0.0) / 10.0,
+            Vec3f::new(0.0, 0.0, 1.0) / 30.0,
+            shape::Material {
+                emission: Vec3f::new(0.0, 0.0, 0.0),
+                base_color: Vec3f::new(1.0, 1.0, 1.0),
+                metallic: 0.0,
+                roughness: 1.0,
+            }
+        )));
+
+        Box::new(scene)
+    }
+
     pub fn new(window: winit::window::Window) -> Self {
         let window_size = window.inner_size();
         let window = Arc::new(window);
@@ -56,6 +169,8 @@ impl System {
             input: input::Input::new(),
             camera: Camera::new(),
         };
+
+        result.render.set_traced_shape(Self::gen_cornell_box().as_ref());
 
         result.camera.set(
             Vec3f::new(-3.2, 2.8, 0.3),
@@ -162,6 +277,10 @@ impl System {
                     self.camera.set(self.camera.location + movement_delta, self.camera.location + movement_delta + new_direction, Vec3f {x: 0.0, y: 1.0, z: 0.0});
                     true
                 };
+
+                if input_state.is_key_pressed(input::KeyCode::Space) {
+                    self.render.reset_frame();
+                }
 
                 unsafe {
                     static mut T: Option<std::time::Instant> = None;
