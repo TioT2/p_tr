@@ -33,11 +33,24 @@ struct System {
 @group(0) @binding(1) var<uniform> system: System;
 @group(1) @binding(0) var light_collector: texture_2d<f32>;
 
+// ACES tonemapping operator performant approximation
+fn tonemap_aces_approx(light: vec3f) -> vec3f {
+    const a = 2.51;
+    const b = 0.03;
+    const c = 2.43;
+    const d = 0.59;
+    const e = 0.14;
+    let v = light * 0.6;
+    return clamp((v * (a * v + b)) / (v * (c * v + d) + e), vec3f(0.0), vec3f(1.0));
+}
+
 @fragment
 fn fs_main(@builtin(position) frag_coord_4f: vec4f, @location(0) tex_coord: vec2f) -> @location(0) vec4f {
     let collector_coord = vec2i(frag_coord_4f.xy / system.resolution_scale);
+    let collected_color = textureLoad(light_collector, collector_coord, 0).xyz;
+    let compressed_color = tonemap_aces_approx(collected_color);
 
-    return textureLoad(light_collector, collector_coord, 0) / f32(system.static_frame_index + 1);
+    return vec4f(compressed_color, 0.0);
 } // fn fs_main
 
 // file shader.wgsl

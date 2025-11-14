@@ -153,17 +153,6 @@ fn trace(init_ray: Ray) -> vec3f {
     return incoming_light;
 }
 
-// ACES tonemapping operator performant approximation
-fn tonemap_aces_approx(light: vec3f) -> vec3f {
-    const a = 2.51;
-    const b = 0.03;
-    const c = 2.43;
-    const d = 0.59;
-    const e = 0.14;
-    let v = light * 0.6;
-    return clamp((v * (a * v + b)) / (v * (c * v + d) + e), vec3f(0.0), vec3f(1.0));
-}
-
 fn tex_coord_to_ray(tex_coord: vec2f) -> Ray {
     let coord = tex_coord * 2.0 - 1.0;
     var ray: Ray;
@@ -178,29 +167,29 @@ fn tex_coord_to_ray(tex_coord: vec2f) -> Ray {
 
 @fragment
 fn fs_main(@builtin(position) frag_coord_4f: vec4f, @location(0) tex_coord: vec2f) -> @location(0) vec4f {
+    // Initialize random generator
     _rand_seed = 1
-        // * u32(tex_coord.x * 3123456.0)
-        // * u32(tex_coord.y * 8765345.0)
-        // * u32(fract(system.time) * 324234234.5);
         * u32(tex_coord.x * 3156.2645)
         * u32(tex_coord.y * 8745.7853)
         * u32(fract(system.time) * 7123.3195)
         + u32(fract(system.time) * 2348.5473);
 
-    let sample_count = 8;
+    let sample_count: u32 = 8;
 
-    var out_color = vec3f(0.0, 0.0, 0.0);
-    for (var i = 0; i < sample_count; i++) {
+    // Load already collected value to the output color
+    var out_color = textureLoad(read_collector, vec2i(frag_coord_4f.xy), 0).xyz;
+    out_color *= f32(system.static_frame_index != 0);
+
+    // Add new traces
+    for (var i: u32 = 0; i < sample_count; i++) {
         let trace_dir = tex_coord_to_ray(tex_coord + system.texel_size * vec2f(rand_f32(), rand_f32()));
         let trace_light = max(trace(trace_dir), vec3f(0.0));
 
-        out_color += tonemap_aces_approx(trace_light);
+        out_color += (trace_light - out_color) / f32(system.static_frame_index * sample_count + i + 1);
     }
-    out_color /= f32(sample_count);
 
-    let collected_color = textureLoad(read_collector, vec2i(frag_coord_4f.xy), 0).xyz;
-
-    return vec4f(collected_color * f32(system.static_frame_index != 0) + out_color, 0.0);
+    // Save!
+    return vec4f(out_color, 0.0);
 } // fn fs_main
 
 // file shader.wgsl

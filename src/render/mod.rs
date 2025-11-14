@@ -259,7 +259,11 @@ impl Render {
     }
 
     pub fn new(window: Arc<dyn wgpu::WindowHandle>, surface_ext: Ext2u) -> Option<Self> {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::VULKAN,
+            flags: wgpu::InstanceFlags::debugging(),
+            ..Default::default()
+        });
 
         let surface = instance.create_surface(window.clone()).ok()?;
 
@@ -280,7 +284,10 @@ impl Render {
 
         let surface_format = {
             let caps = surface.get_capabilities(&adapter);
-            *caps.formats.iter().find(|f| f.is_srgb() && f.has_color_aspect() && f.components() == 4).unwrap_or(&caps.formats[0])
+            if !caps.formats.contains(&wgpu::TextureFormat::Bgra8UnormSrgb) {
+                panic!("Bgra8UnormSrgb texture format is guaranteed with WebGPU spec!");
+            }
+            wgpu::TextureFormat::Bgra8UnormSrgb
         };
         // Setup surface
         let surface_configuration = wgpu::SurfaceConfiguration {
