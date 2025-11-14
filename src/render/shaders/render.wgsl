@@ -67,118 +67,13 @@ fn rand_vec3() -> vec3f {
     );
 }
 
+/// Ray structure
 struct Ray {
     direction: vec3f,
     origin: vec3f,
 }
 
-struct SphereIntersectResult {
-    normal: vec3f,
-    distance: f32,
-    is_hit: bool,
-}
-
-fn sphere_intersect_check(center: vec3f, radius: f32, ray: Ray) -> SphereIntersectResult {
-    var result: SphereIntersectResult;
-
-    let delta = center - ray.origin;
-    let delta_proj_len = dot(delta, ray.direction);
-    let delta_proj = ray.direction * delta_proj_len;
-    let h = distance(delta, delta_proj);
-
-    result.is_hit = delta_proj_len > 0.0 && h <= radius;
-    let d = sqrt(radius * radius - h * h);
-    result.distance = delta_proj_len - d;
-    result.normal = (delta_proj - delta - ray.direction * d) / radius;
-
-    return result;
-}
-
-struct QuadIntersectionResult {
-    distance: f32,
-    is_hit: bool,
-    uv: vec2f,
-}
-
-struct Quad {
-    normal: vec3f,
-    base: vec3f,
-    u: vec3f,
-    v: vec3f,
-}
-
-// Construct compact quad
-fn quad_ctor(base: vec3f, u: vec3f, v: vec3f) -> Quad {
-    var q: Quad;
-
-    q.normal = normalize(cross(u, v));
-    q.base = base;
-    q.u = u;
-    q.v = v;
-
-    return q;
-}
-
-fn quad_intersect_check(q: Quad, ray: Ray) -> QuadIntersectionResult {
-    var result: QuadIntersectionResult;
-
-    result.distance = (dot(q.base - ray.origin, q.normal)) / dot(q.normal, ray.direction);
-
-    let location = ray.direction * result.distance + ray.origin;
-
-    result.uv = vec2f(dot(location - q.base, q.u), dot(location - q.base, q.v));
-    result.is_hit = result.distance > 0.0
-        && result.uv.x > 0.0 && result.uv.y > 0.0
-        && result.uv.x < 1.0 && result.uv.y < 1.0;
-
-    return result;
-}
-
-struct PlaneIntersectResult {
-    distance: f32,
-    is_hit: bool,
-}
-
-fn plane_intersect_check(point: vec3f, normal: vec3f, ray: Ray) -> PlaneIntersectResult {
-    var result: PlaneIntersectResult;
-
-    result.distance = dot(point - ray.origin, normal) / dot(normal, ray.direction);
-    result.is_hit = result.distance > 0.0;
-    return result;
-}
-
-struct BoxIntersectionResult {
-    normal: vec3f,
-    distance: f32,
-    is_hit: bool,
-}
-
-fn box_intersect_check(p0: vec3f, p1: vec3f, ray: Ray) -> BoxIntersectionResult {
-    let utv0 = (p0 - ray.origin) / ray.direction;
-    let utv1 = (p1 - ray.origin) / ray.direction;
-    let tv0 = min(utv0, utv1);
-    let tv1 = max(utv0, utv1);
-    let t_near = max(max(tv0.x, tv0.y), tv0.z);
-    let t_far = min(min(tv1.x, tv1.y), tv1.z);
-    return BoxIntersectionResult(
-        /* normal:   */ vec3f(tv0 == vec3f(t_near)) * -sign(ray.direction),
-        /* distance: */ select(t_far, t_near, t_near > 0.0),
-        /* is_hit:   */ t_far >= max(t_near, 0.0),
-    );
-}
-
-fn box_intersect_test(p0: vec3f, p1: vec3f, ray: Ray) -> bool {
-    let utv0 = (p0 - ray.origin) / ray.direction;
-    let utv1 = (p1 - ray.origin) / ray.direction;
-    let tv0 = min(utv0, utv1);
-    let tv1 = max(utv0, utv1);
-    let t_near = max(max(tv0.x, tv0.y), tv0.z);
-    let t_far = min(min(tv1.x, tv1.y), tv1.z);
-
-    return t_far >= max(t_near, 0.0);
-}
-
-// Material structue
+/// Material structue
 struct Material {
     color: vec3f,
     roughness: f32,
@@ -186,6 +81,7 @@ struct Material {
     metallic: f32,
 }
 
+/// Result of intersection between
 struct IntersectionResult {
     distance: f32,
     is_hit: bool,
@@ -200,74 +96,12 @@ fn intersect_scene(ray: Ray) -> IntersectionResult {
     result0.is_hit = false;
     result0.distance = 8000000000.0;
 
-//$
+    //$SCENE Cpu-generated code goes here
 
     return result0;
 }
 
-const MAX_BOUNCE: u32 = 12;
-
-/// Helper for 'G' BRDF term calculation
-fn ggx_partial_geometry_schlick(nd: f32, k: f32) -> f32 {
-    return nd / (nd * (1 - k) + k);
-}
-
-/// 'G' Cook-Torrance BRDF term
-/// Path tracing unifies the three effects essentially.
-/// You simulate the direct lighting, and then there is no difference between the RT reflections and the GI.
-///
-/// # Note
-/// `k` parameter is function from alpha and is different for IBL and direct lighting
-fn ggx_geometry_smith(nv: f32, nl: f32, k: f32) -> f32 {
-    return ggx_partial_geometry_schlick(nv, k) * ggx_partial_geometry_schlick(nl, k);
-}
-
-/// 'D' Cook-Torrance BRDF term
-fn ggx_distribution_trowbridge_reitz(nh: f32, alpha: f32) -> f32 {
-    let alpha2 = alpha * alpha;
-    let den = nh * nh * (alpha2 - 1) + 1;
-    return alpha2 / (radians(180) * den * den);
-}
-
-/// 'F' Cook-Torrance BRDF term
-fn frensel_schlick(f0: vec3<f32>, hv: f32) -> vec3<f32> {
-    return f0 + (1 - f0) * pow(1 - hv, 5);
-}
-
-/// Cook-Torrance BRDF function calculation
-fn brdf_cook_torrance(
-    base_color: vec3<f32>,
-    metallic: f32,
-    roughness: f32,
-    normal: vec3<f32>,
-    light: vec3<f32>,
-    view: vec3<f32>,
-) -> vec3<f32> {
-    let nl = max(0.001, dot(normal, light));
-    let nv = max(0.001, dot(normal, view));
-
-    let half = normalize(view + light);
-
-    let nh = max(0.001, dot(normal, half));
-    let hv = max(0.001, dot(half, view));
-
-    let alpha = roughness * roughness;
-
-    // Alpha remapping for directional light for Smith geometry term
-    let k = (alpha + 1) * (alpha + 1) / 8;
-
-    let f0 = mix(vec3<f32>(0.04), base_color, vec3<f32>(metallic));
-    let albedo = mix(base_color, vec3<f32>(0.04), vec3<f32>(metallic));
-
-    let d = ggx_distribution_trowbridge_reitz(nh, alpha);
-    let g = ggx_geometry_smith(nv, nl, k);
-    let f = frensel_schlick(f0, hv);
-
-    let diff = (1 - f) * albedo * nl / radians(180.0);
-    let spec = d * g * f / (4 * nv);
-
-    return diff + spec;
-}
+const MAX_BOUNCE: u32 = 16;
 
 /// Lambertian BRDF
 fn brdf_lambert(
@@ -291,11 +125,6 @@ fn trace(init_ray: Ray) -> vec3f {
 
         // Calculate sun emission on scene intersection fail
         if !result.is_hit {
-            // let sun_direction = normalize(vec3f(0.0, 2.0, -3.0));
-            // let sun_radius = 0.97;
-            // let sun_force = 200.0;
-
-            // incoming_light += f32(dot(ray.direction, sun_direction) >= sun_radius) * sun_force * ray_color;
             break;
         }
 
@@ -319,15 +148,6 @@ fn trace(init_ray: Ray) -> vec3f {
             result.normal,
             ray.direction,
         );
-
-        // ray_color *= brdf_cook_torrance(
-        //     result.color,
-        //     result.metallic,
-        //     result.roughness,
-        //     result.normal,
-        //     ray.direction,
-        //     -prev_ray_direction,
-        // );
     }
 
     return incoming_light;
@@ -364,14 +184,13 @@ fn fs_main(@builtin(position) frag_coord_4f: vec4f, @location(0) tex_coord: vec2
         * u32(fract(system.time) * 324234234.5);
 
     let sample_count = 4;
+
     var out_color = vec3f(0.0, 0.0, 0.0);
     for (var i = 0; i < sample_count; i++) {
         let trace_dir = tex_coord_to_ray(tex_coord + system.texel_size * vec2f(rand_f32(), rand_f32()));
         let trace_light = max(trace(trace_dir), vec3f(0.0));
 
         out_color += tonemap_aces_approx(trace_light);
-        // out_color += trace_light / (trace_light + 0.1);
-        // out_color += clamp(trace_light, vec3f(0.0), vec3f(1.0));
     }
     out_color /= f32(sample_count);
 

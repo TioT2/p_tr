@@ -88,7 +88,7 @@ impl ShaderGenerator {
         let mut dst = &mut prefix;
 
         for line in source.lines() {
-            if line.starts_with("//$") {
+            if line.trim_start().starts_with("//$SCENE") {
                 dst = &mut postfix;
             } else {
                 dst.push_str(line);

@@ -35,9 +35,9 @@ struct System {
 
 @fragment
 fn fs_main(@builtin(position) frag_coord_4f: vec4f, @location(0) tex_coord: vec2f) -> @location(0) vec4f {
-    let light = textureLoad(light_collector, vec2i(frag_coord_4f.xy / system.resolution_scale), 0) / f32(system.static_frame_index + 1);
+    let collector_coord = vec2i(frag_coord_4f.xy / system.resolution_scale);
 
-    return light;
+    return textureLoad(light_collector, collector_coord, 0) / f32(system.static_frame_index + 1);
 } // fn fs_main
 
 // file shader.wgsl
